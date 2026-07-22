@@ -1,0 +1,16 @@
+services:
+  gate-opener:
+    build: .
+    image: gate-opener:local
+    container_name: gate-opener
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      COMMAND_TTL: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
+      interval: 30s
+      timeout: 3s
+      retries: 3

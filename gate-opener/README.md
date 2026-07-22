@@ -25,9 +25,14 @@ The most recent POST wins and resets the timer. Once the TTL lapses,
 
 ## Run
 
+On the server, from a clone of this repo:
+
 ```bash
-docker run -p 8080:8080 ghcr.io/mkzaborowski/gate-opener:latest
+cd homelab/gate-opener && docker compose up -d --build
 ```
+
+The image is built locally from this directory — no registry involved. To pick
+up changes after a `git pull`, re-run the same command.
 
 Or without Docker: `python3 app.py` (no dependencies).
 
