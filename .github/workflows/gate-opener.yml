@@ -30,10 +30,14 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha,format=long
+            type=semver,pattern={{version}}      # tag gita v1.0.0 -> obraz :1.0.0
 
       - uses: docker/build-push-action@v6
         with:
           context: ./gate-opener
           push: true
+          # Serwer jest x86_64 - obraz MUSI być amd64. Bez tego build na Macu
+          # (arm64) kończy się na serwerze pętlą "exec format error".
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
