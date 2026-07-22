@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Garage / gate opener command API.
 
-POST /garage  -> arms the "garage" command for 3 seconds
-POST /gate    -> arms the "gate" command for 3 seconds
+POST /garage  -> arms the "garage" command for 1.5 seconds
+POST /gate    -> arms the "gate" command for 1.5 seconds
 GET  /command -> returns the armed command, or "none" once it expires
 """
 
@@ -12,7 +12,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-TTL_SECONDS = int(os.environ.get("COMMAND_TTL", "3"))
+TTL_SECONDS = float(os.environ.get("COMMAND_TTL", "1.5"))
 BASE_COMMAND = "none"
 
 _lock = threading.Lock()
@@ -36,8 +36,8 @@ def current():
         if _command is None or remaining <= 0:
             _command = None
             _expires_at = 0.0
-            return BASE_COMMAND, 0
-        return _command, int(remaining)
+            return BASE_COMMAND, 0.0
+        return _command, round(remaining, 3)
 
 
 class Handler(BaseHTTPRequestHandler):

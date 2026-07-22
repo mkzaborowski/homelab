@@ -21,7 +21,7 @@ The most recent POST wins and resets the timer. Once the TTL lapses,
 | Env var       | Default | Meaning                        |
 | ------------- | ------- | ------------------------------ |
 | `PORT`        | `8080`  | listen port                    |
-| `COMMAND_TTL` | `3`     | seconds a command stays armed  |
+| `COMMAND_TTL` | `1.5`   | seconds a command stays armed (fractional ok) |
 
 ## Run
 
@@ -45,5 +45,6 @@ There is **no authentication**. Anything that can reach the port can trigger a
 door, so keep it on a trusted network segment. Add a shared-secret header before
 exposing it through an ingress.
 
-With a 3s TTL, a client polling slower than the TTL can miss a command. Poll
-faster than `COMMAND_TTL`, or switch `/command` to consume-on-read.
+With a 1.5s TTL, a client polling slower than the TTL can miss a command. Poll
+well under `COMMAND_TTL` (~500ms), or switch `/command` to consume-on-read so
+delivery no longer depends on timing.

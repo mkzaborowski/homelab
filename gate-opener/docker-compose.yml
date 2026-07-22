@@ -7,7 +7,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      COMMAND_TTL: "3"
+      COMMAND_TTL: "1.5"
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')"]
