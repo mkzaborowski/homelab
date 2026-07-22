@@ -1,6 +1,6 @@
 /** Pola ustawień serwera pokazywane w panelu (klucze pliku .env stacka minecraft). */
 export const POLA = [
-    { klucz: "VERSION", etykieta: "Wersja Minecrafta", typ: "text", uwaga: "np. 1.21.4 albo LATEST" },
+    { klucz: "VERSION", etykieta: "Wersja Minecrafta", typ: "text", uwaga: "np. 26.2 (najnowsza) albo LATEST" },
     { klucz: "TYPE", etykieta: "Silnik", typ: "select", opcje: ["PAPER", "VANILLA", "SPIGOT", "FABRIC"] },
     { klucz: "MEMORY", etykieta: "Pamięć dla serwera", typ: "text", uwaga: "np. 2G (limit kontenera: 3G)" },
     { klucz: "MOTD", etykieta: "Opis na liście serwerów", typ: "text" },

@@ -47,7 +47,7 @@ export const stronaLogowania = (blad) => `<!doctype html><html lang="pl"><head><
     <button class="btn" style="width:100%;justify-content:center">Zaloguj</button>
 </form></body></html>`
 
-export const strona = ({ stan, gracze, ustawienia, adres, komunikat, blad }) => {
+export const strona = ({ stan, gracze, ustawienia, adres, komunikat, blad, swiaty = [] }) => {
     const pola = POLA.map((p) => {
         const wartosc = ustawienia[p.klucz] ?? ""
         const kontrolka =
@@ -94,6 +94,27 @@ export const strona = ({ stan, gracze, ustawienia, adres, komunikat, blad }) => 
             <button class="btn">Wyślij</button>
         </form>
     </div>
+
+    <div class="panel"><h2>Światy</h2><div class="tresc">
+        ${swiaty.length === 0
+            ? `<div class="uwaga">Nie znaleziono światów (serwer może być zatrzymany).</div>`
+            : swiaty.map((w) => `
+                <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #223041">
+                    <div style="flex:1">
+                        <div style="font-weight:600">${esc(w.nazwa)}</div>
+                        <div class="uwaga" style="margin:0">rozmiar: ${esc(w.rozmiar)}</div>
+                    </div>
+                    <form method="post" action="/swiaty/usun"
+                          onsubmit="return confirm('Skasować świat &quot;${esc(w.nazwa)}&quot;? Tej operacji nie da się cofnąć — cały postęp gry przepadnie.')">
+                        <input type="hidden" name="nazwa" value="${esc(w.nazwa)}">
+                        <button class="btn czerw">Skasuj świat</button>
+                    </form>
+                </div>`).join("")}
+        <div class="uwaga" style="margin-top:14px">
+            Kasowanie zatrzymuje serwer, usuwa świat wraz z Netherem i Endem, po czym uruchamia go ponownie —
+            nowy świat powstanie z aktualnie ustawionego seeda.
+        </div>
+    </div></div>
 
     <div class="panel"><h2>Ustawienia serwera</h2><div class="tresc">
         <form method="post" action="/ustawienia">

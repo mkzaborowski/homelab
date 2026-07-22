@@ -18,6 +18,7 @@ const config = {
     rconHost: process.env.RCON_HOST ?? "minecraft",
     rconPort: Number(process.env.RCON_PORT ?? 25575),
     adresSerwera: process.env.MC_ADDRESS ?? "mc.marcelizaborowski.com",
+    wolumenDanych: process.env.MC_DATA_VOLUME ?? "minecraft_mc_data",
 }
 
 // --- ustawienia serwera (plik .env stacka minecraft) ---
@@ -128,11 +129,12 @@ app.get("/wyloguj", (_req, res) => {
 })
 
 app.get("/", wymagajLogowania, async (req, res) => {
-    const [stan, lista] = await Promise.all([stanSerwera(), gracze()])
+    const [stan, lista, listaSwiatow] = await Promise.all([stanSerwera(), gracze(), swiaty()])
     res.type("html").send(
         strona({
             stan,
             gracze: lista,
+            swiaty: listaSwiatow,
             ustawienia: czytajEnv(),
             adres: config.adresSerwera,
             komunikat: req.query.ok ? String(req.query.ok) : req.query.blad ? String(req.query.blad) : "",
@@ -188,6 +190,49 @@ app.get("/api/logi", wymagajLogowania, async (_req, res) => {
         res.type("text/plain").send(out.replace(/\[[0-9;]*m/g, "").replace(/>\.*\[K/g, ""))
     } catch (e) {
         res.status(502).type("text/plain").send(String(e.message ?? e))
+    }
+})
+
+/** Lista światów na wolumenie serwera (nazwa + rozmiar). */
+const swiaty = async () => {
+    try {
+        const out = await docker(
+            "exec", config.kontener, "sh", "-c",
+            "for d in /data/*/; do [ -f \"$d/level.dat\" ] && printf '%s|%s\\n' \"$(basename $d)\" \"$(du -sh $d | cut -f1)\"; done"
+        )
+        return out.trim().split("\n").filter(Boolean).map((l) => {
+            const [nazwa, rozmiar] = l.split("|")
+            return { nazwa, rozmiar }
+        })
+    } catch {
+        return []
+    }
+}
+
+app.get("/api/swiaty", wymagajLogowania, async (_req, res) => res.json(await swiaty()))
+
+/**
+ * Kasowanie świata. Serwer musi być zatrzymany, inaczej odtworzy pliki z
+ * pamięci. Po skasowaniu wstaje z nowym światem (i aktualnym seedem).
+ */
+app.post("/swiaty/usun", wymagajLogowania, async (req, res) => {
+    const nazwa = String(req.body?.nazwa ?? "").trim()
+    // tylko nazwy katalogów - żadnych ścieżek ani znaków specjalnych
+    if (!/^[A-Za-z0-9_.-]+$/.test(nazwa) || nazwa === "." || nazwa === "..") {
+        return res.redirect("/?blad=" + encodeURIComponent("Niepoprawna nazwa świata"))
+    }
+    try {
+        await docker("stop", config.kontener)
+        // kasujemy świat wraz z wymiarami (nether/end tworzą osobne katalogi)
+        await docker(
+            "run", "--rm", "-v", `${config.wolumenDanych}:/data`, "alpine",
+            "sh", "-c", `rm -rf "/data/${nazwa}" "/data/${nazwa}_nether" "/data/${nazwa}_the_end"`
+        )
+        await docker("start", config.kontener)
+        res.redirect("/?ok=" + encodeURIComponent(`Świat „${nazwa}" skasowany, serwer generuje nowy`))
+    } catch (e) {
+        try { await docker("start", config.kontener) } catch { /* serwer i tak trzeba podnieść */ }
+        res.redirect("/?blad=" + encodeURIComponent(String(e.message ?? e).slice(0, 200)))
     }
 })
 
