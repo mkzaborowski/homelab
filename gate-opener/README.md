@@ -22,6 +22,7 @@ The most recent POST wins and resets the timer. Once the TTL lapses,
 | ------------- | ------- | ------------------------------ |
 | `PORT`        | `8080`  | listen port                    |
 | `COMMAND_TTL` | `1.5`   | seconds a command stays armed (fractional ok) |
+| `AUTH_TOKEN`  | unset   | when set, required as the `X-Auth-Token` header |
 
 ## Run
 
@@ -41,9 +42,17 @@ Or without Docker: `python3 app.py` (no dependencies).
 State is in-memory, so a restart clears any armed command — intended, given the
 short TTL.
 
-There is **no authentication**. Anything that can reach the port can trigger a
-door, so keep it on a trusted network segment. Add a shared-secret header before
-exposing it through an ingress.
+Authentication is **off unless `AUTH_TOKEN` is set**. With it unset, anything
+that can reach the port can trigger a door — acceptable on a trusted segment,
+not through an ingress. Set `AUTH_TOKEN` and send it as `X-Auth-Token`:
+
+```bash
+curl -X POST -H "X-Auth-Token: $AUTH_TOKEN" http://gate-opener:8080/gate
+```
+
+`/healthz` stays open so container health checks keep working. The token is
+sent in a plain header, so put TLS in front of it before it crosses anything
+untrusted.
 
 With a 1.5s TTL, a client polling slower than the TTL can miss a command. Poll
 well under `COMMAND_TTL` (~500ms), or switch `/command` to consume-on-read so
