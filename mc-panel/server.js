@@ -1,7 +1,17 @@
 import express from "express"
+import multer from "multer"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
-import { readFileSync, writeFileSync, existsSync } from "node:fs"
+import {
+    readFileSync,
+    writeFileSync,
+    existsSync,
+    createWriteStream,
+} from "node:fs"
+import { readdir, mkdir, rm, rename, cp } from "node:fs/promises"
+import { Readable } from "node:stream"
+import { pipeline } from "node:stream/promises"
+import path from "node:path"
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { rcon } from "./rcon.js"
 import { strona, stronaLogowania } from "./widok.js"
@@ -18,8 +28,11 @@ const config = {
     rconHost: process.env.RCON_HOST ?? "minecraft",
     rconPort: Number(process.env.RCON_PORT ?? 25575),
     adresSerwera: process.env.MC_ADDRESS ?? "mc.marcelizaborowski.com",
-    wolumenDanych: process.env.MC_DATA_VOLUME ?? "minecraft_mc_data",
+    // wolumen serwera zamontowany bezpośrednio w panelu - stąd import i lista światów
+    dataDir: process.env.MC_DATA_DIR ?? "/data",
 }
+
+const KATALOG_UPLOADU = path.join(config.dataDir, ".uploads")
 
 // --- ustawienia serwera (plik .env stacka minecraft) ---
 
@@ -48,10 +61,12 @@ const zapiszEnv = (zmiany) => {
     writeFileSync(config.envServera, nowe.join("\n"))
 }
 
+const nazwaSwiata = () => czytajEnv().LEVEL || "world"
+
 // --- docker ---
 
 const docker = async (...args) => {
-    const { stdout } = await wykonaj("docker", args, { maxBuffer: 4 * 1024 * 1024 })
+    const { stdout } = await wykonaj("docker", args, { maxBuffer: 8 * 1024 * 1024 })
     return stdout
 }
 
@@ -65,12 +80,136 @@ const stanSerwera = async () => {
     }
 }
 
+const startSerwera = () => docker("compose", "--project-directory", config.katalogStacka, "up", "-d")
+const stopSerwera = () => docker("stop", config.kontener)
+
 const gracze = async () => {
     try {
         const odp = await rcon(config.rconHost, config.rconPort, process.env.RCON_PASSWORD ?? "", "list")
         return odp.replace(/§./g, "").trim()
     } catch (e) {
         return `RCON niedostępny (${String(e.message ?? e)})`
+    }
+}
+
+// --- światy (czytane wprost z wolumenu) ---
+
+/** Czy folder wygląda na świat Minecrafta (ma level.dat). */
+const jestSwiatem = (dir) => existsSync(path.join(dir, "level.dat"))
+
+const swiaty = async () => {
+    if (!existsSync(config.dataDir)) return []
+    const wpisy = await readdir(config.dataDir, { withFileTypes: true })
+    const wynik = []
+    for (const w of wpisy) {
+        if (!w.isDirectory() || w.name.startsWith(".")) continue
+        // pomijamy foldery wymiarów Bukkit/Paper - pokazujemy tylko główny świat
+        if (/_(nether|the_end)$/.test(w.name)) continue
+        const pelny = path.join(config.dataDir, w.name)
+        if (!jestSwiatem(pelny)) continue
+        let rozmiar = "?"
+        try {
+            const { stdout } = await wykonaj("du", ["-sh", pelny], { maxBuffer: 1 << 20 })
+            rozmiar = stdout.split("\t")[0].trim()
+        } catch {
+            /* rozmiar nieistotny, gdy się nie uda */
+        }
+        wynik.push({ nazwa: w.name, rozmiar, aktywny: w.name === nazwaSwiata() })
+    }
+    return wynik.sort((a, b) => Number(b.aktywny) - Number(a.aktywny) || a.nazwa.localeCompare(b.nazwa))
+}
+
+const bezpiecznaNazwa = (n) => /^[A-Za-z0-9_.-]+$/.test(n) && n !== "." && n !== ".."
+
+// --- import świata ---
+
+/** Zwraca wszystkie foldery zawierające level.dat (do głębokości 6). */
+const znajdzSwiaty = async (root) => {
+    const wynik = []
+    const walk = async (dir, glebokosc) => {
+        if (glebokosc > 6) return
+        let wpisy
+        try {
+            wpisy = await readdir(dir, { withFileTypes: true })
+        } catch {
+            return
+        }
+        if (wpisy.some((w) => w.isFile() && w.name === "level.dat")) wynik.push(dir)
+        for (const w of wpisy) {
+            if (w.isDirectory()) await walk(path.join(dir, w.name), glebokosc + 1)
+        }
+    }
+    await walk(root, 0)
+    return wynik
+}
+
+const przenoscLubScal = async (zrodlo, cel) => {
+    if (!existsSync(zrodlo)) return
+    if (existsSync(cel)) {
+        await cp(zrodlo, cel, { recursive: true, force: true })
+    } else {
+        await rename(zrodlo, cel).catch(async () => {
+            // rename bywa niemożliwy między urządzeniami - wtedy kopiujemy
+            await cp(zrodlo, cel, { recursive: true, force: true })
+        })
+    }
+}
+
+/**
+ * Rozpakowuje archiwum świata, wykrywa główny świat (i ewentualne wymiary
+ * w formacie Paper/Aternos), robi kopię obecnego świata i podmienia go.
+ * Serwer musi być zdolny do zatrzymania - robimy to tutaj.
+ */
+const importujSwiat = async (zipPath, nowaWersja) => {
+    const tmp = path.join(config.dataDir, ".import-" + Date.now())
+    await mkdir(tmp, { recursive: true })
+
+    try {
+        await wykonaj("unzip", ["-oq", zipPath, "-d", tmp], { maxBuffer: 8 << 20 }).catch(() => {
+            throw new Error("To nie jest poprawne archiwum .zip")
+        })
+
+        const swiatyWArchiwum = await znajdzSwiaty(tmp)
+        if (swiatyWArchiwum.length === 0) {
+            throw new Error("W archiwum nie znaleziono świata (brak pliku level.dat)")
+        }
+        // główny świat: folder z level.dat, którego nazwa nie kończy się na wymiar
+        const overworld =
+            swiatyWArchiwum
+                .filter((d) => !/_(nether|the_end)$/.test(path.basename(d)))
+                .sort((a, b) => a.split(path.sep).length - b.split(path.sep).length)[0] ?? swiatyWArchiwum[0]
+
+        const level = nazwaSwiata()
+        const stempel = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+
+        await stopSerwera()
+
+        // kopia obecnego świata (do skasowania z panelu, gdy import się powiedzie)
+        for (const suf of ["", "_nether", "_the_end"]) {
+            const p = path.join(config.dataDir, `${level}${suf}`)
+            if (existsSync(p)) await rename(p, path.join(config.dataDir, `${level}.stary-${stempel}${suf}`))
+        }
+
+        // główny świat
+        await rename(overworld, path.join(config.dataDir, level))
+        await rm(path.join(config.dataDir, level, "session.lock"), { force: true })
+
+        // wymiary z formatu Paper/Spigot scalamy do układu vanilla (DIM-1 / DIM1)
+        const rodzic = path.dirname(overworld)
+        const baza = path.basename(overworld)
+        const netherDim = path.join(rodzic, `${baza}_nether`, "DIM-1")
+        const endDim = path.join(rodzic, `${baza}_the_end`, "DIM1")
+        await przenoscLubScal(netherDim, path.join(config.dataDir, level, "DIM-1"))
+        await przenoscLubScal(endDim, path.join(config.dataDir, level, "DIM1"))
+
+        if (nowaWersja) zapiszEnv({ VERSION: nowaWersja })
+
+        await startSerwera()
+
+        return { level, backup: `${level}.stary-${stempel}` }
+    } finally {
+        await rm(tmp, { recursive: true, force: true }).catch(() => {})
+        await rm(zipPath, { force: true }).catch(() => {})
     }
 }
 
@@ -108,6 +247,11 @@ app.disable("x-powered-by")
 app.set("trust proxy", 1)
 app.use(express.urlencoded({ extended: false, limit: "64kb" }))
 app.use(express.json({ limit: "64kb" }))
+
+const upload = multer({
+    dest: KATALOG_UPLOADU,
+    limits: { fileSize: 6 * 1024 * 1024 * 1024 }, // 6 GB
+})
 
 app.get("/healthz", (_req, res) => res.json({ ok: true }))
 
@@ -152,7 +296,7 @@ app.post("/ustawienia", wymagajLogowania, async (req, res) => {
             if (v !== undefined) zmiany[pole.klucz] = String(v).replace(/[\r\n]/g, "").slice(0, 200)
         }
         zapiszEnv(zmiany)
-        await docker("compose", "--project-directory", config.katalogStacka, "up", "-d")
+        await startSerwera()
         res.redirect("/?ok=" + encodeURIComponent("Ustawienia zapisane, serwer wstaje z nową konfiguracją"))
     } catch (e) {
         res.redirect("/?blad=" + encodeURIComponent(String(e.message ?? e).slice(0, 200)))
@@ -167,6 +311,57 @@ app.post("/moc/:akcja", wymagajLogowania, async (req, res) => {
         await docker(...akcja, config.kontener)
         res.redirect("/?ok=" + encodeURIComponent(`Wykonano: ${req.params.akcja}`))
     } catch (e) {
+        res.redirect("/?blad=" + encodeURIComponent(String(e.message ?? e).slice(0, 200)))
+    }
+})
+
+// --- import świata: z pliku i z linku ---
+
+app.post("/import", wymagajLogowania, upload.single("swiat"), async (req, res) => {
+    if (!req.file) return res.redirect("/?blad=" + encodeURIComponent("Nie wybrano pliku"))
+    try {
+        const wersja = String(req.body?.wersja ?? "").trim() || null
+        const { backup } = await importujSwiat(req.file.path, wersja)
+        res.redirect("/?ok=" + encodeURIComponent(`Świat zaimportowany. Poprzedni zapisano jako „${backup}" (możesz go skasować niżej).`))
+    } catch (e) {
+        await startSerwera().catch(() => {})
+        res.redirect("/?blad=" + encodeURIComponent(String(e.message ?? e).slice(0, 220)))
+    }
+})
+
+app.post("/import-url", wymagajLogowania, async (req, res) => {
+    const url = String(req.body?.url ?? "").trim()
+    if (!/^https?:\/\//i.test(url)) return res.redirect("/?blad=" + encodeURIComponent("Podaj poprawny link http(s) do pliku .zip"))
+    const dest = path.join(KATALOG_UPLOADU, `url-${Date.now()}.zip`)
+    try {
+        await mkdir(KATALOG_UPLOADU, { recursive: true })
+        const odp = await fetch(url)
+        if (!odp.ok || !odp.body) throw new Error(`Nie udało się pobrać pliku (HTTP ${odp.status})`)
+        await pipeline(Readable.fromWeb(odp.body), createWriteStream(dest))
+
+        const wersja = String(req.body?.wersja ?? "").trim() || null
+        const { backup } = await importujSwiat(dest, wersja)
+        res.redirect("/?ok=" + encodeURIComponent(`Świat pobrany i zaimportowany. Poprzedni zapisano jako „${backup}".`))
+    } catch (e) {
+        await rm(dest, { force: true }).catch(() => {})
+        await startSerwera().catch(() => {})
+        res.redirect("/?blad=" + encodeURIComponent(String(e.message ?? e).slice(0, 220)))
+    }
+})
+
+/** Kasowanie świata (również kopii .stary-*). Serwer zatrzymywany na czas operacji. */
+app.post("/swiaty/usun", wymagajLogowania, async (req, res) => {
+    const nazwa = String(req.body?.nazwa ?? "").trim()
+    if (!bezpiecznaNazwa(nazwa)) return res.redirect("/?blad=" + encodeURIComponent("Niepoprawna nazwa świata"))
+    try {
+        await stopSerwera()
+        for (const suf of ["", "_nether", "_the_end"]) {
+            await rm(path.join(config.dataDir, `${nazwa}${suf}`), { recursive: true, force: true })
+        }
+        await startSerwera()
+        res.redirect("/?ok=" + encodeURIComponent(`Świat „${nazwa}" skasowany`))
+    } catch (e) {
+        await startSerwera().catch(() => {})
         res.redirect("/?blad=" + encodeURIComponent(String(e.message ?? e).slice(0, 200)))
     }
 })
@@ -187,52 +382,9 @@ app.post("/api/konsola", wymagajLogowania, async (req, res) => {
 app.get("/api/logi", wymagajLogowania, async (_req, res) => {
     try {
         const out = await docker("logs", "--tail", "120", config.kontener)
-        res.type("text/plain").send(out.replace(/\[[0-9;]*m/g, "").replace(/>\.*\[K/g, ""))
+        res.type("text/plain").send(out.replace(/\[[0-9;]*m/g, "").replace(/>\.*\[K/g, ""))
     } catch (e) {
         res.status(502).type("text/plain").send(String(e.message ?? e))
-    }
-})
-
-/** Lista światów na wolumenie serwera (nazwa + rozmiar). */
-const swiaty = async () => {
-    try {
-        const out = await docker(
-            "exec", config.kontener, "sh", "-c",
-            "for d in /data/*/; do [ -f \"$d/level.dat\" ] && printf '%s|%s\\n' \"$(basename $d)\" \"$(du -sh $d | cut -f1)\"; done"
-        )
-        return out.trim().split("\n").filter(Boolean).map((l) => {
-            const [nazwa, rozmiar] = l.split("|")
-            return { nazwa, rozmiar }
-        })
-    } catch {
-        return []
-    }
-}
-
-app.get("/api/swiaty", wymagajLogowania, async (_req, res) => res.json(await swiaty()))
-
-/**
- * Kasowanie świata. Serwer musi być zatrzymany, inaczej odtworzy pliki z
- * pamięci. Po skasowaniu wstaje z nowym światem (i aktualnym seedem).
- */
-app.post("/swiaty/usun", wymagajLogowania, async (req, res) => {
-    const nazwa = String(req.body?.nazwa ?? "").trim()
-    // tylko nazwy katalogów - żadnych ścieżek ani znaków specjalnych
-    if (!/^[A-Za-z0-9_.-]+$/.test(nazwa) || nazwa === "." || nazwa === "..") {
-        return res.redirect("/?blad=" + encodeURIComponent("Niepoprawna nazwa świata"))
-    }
-    try {
-        await docker("stop", config.kontener)
-        // kasujemy świat wraz z wymiarami (nether/end tworzą osobne katalogi)
-        await docker(
-            "run", "--rm", "-v", `${config.wolumenDanych}:/data`, "alpine",
-            "sh", "-c", `rm -rf "/data/${nazwa}" "/data/${nazwa}_nether" "/data/${nazwa}_the_end"`
-        )
-        await docker("start", config.kontener)
-        res.redirect("/?ok=" + encodeURIComponent(`Świat „${nazwa}" skasowany, serwer generuje nowy`))
-    } catch (e) {
-        try { await docker("start", config.kontener) } catch { /* serwer i tak trzeba podnieść */ }
-        res.redirect("/?blad=" + encodeURIComponent(String(e.message ?? e).slice(0, 200)))
     }
 })
 
@@ -241,4 +393,7 @@ app.get("/api/stan", wymagajLogowania, async (_req, res) => {
     res.json({ ...stan, gracze: lista })
 })
 
-app.listen(config.port, () => console.info(`mc-panel na :${config.port} (kontener ${config.kontener})`))
+const server = app.listen(config.port, () => console.info(`mc-panel na :${config.port} (kontener ${config.kontener})`))
+// import dużych światów może trwać - luzujemy limity czasu żądania
+server.requestTimeout = 30 * 60 * 1000
+server.headersTimeout = 60 * 1000

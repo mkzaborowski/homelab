@@ -3,7 +3,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 # klient docker CLI - panel steruje kontenerem serwera Minecraft
-RUN apt-get update && apt-get install -y --no-install-recommends docker.io \
+RUN apt-get update && apt-get install -y --no-install-recommends docker.io unzip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
