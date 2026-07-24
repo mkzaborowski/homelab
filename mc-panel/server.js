@@ -26,6 +26,7 @@ const config = {
     kontener: process.env.MC_CONTAINER ?? "minecraft-minecraft-1",
     katalogStacka: process.env.MC_STACK_DIR ?? "/mc",
     projektCompose: process.env.MC_PROJECT ?? "minecraft",
+    uidSerwera: process.env.MC_SERVER_UID ?? "1000:1000",
     rconHost: process.env.RCON_HOST ?? "minecraft",
     rconPort: Number(process.env.RCON_PORT ?? 25575),
     adresSerwera: process.env.MC_ADDRESS ?? "mc.marcelizaborowski.com",
@@ -203,6 +204,10 @@ const importujSwiat = async (zipPath, nowaWersja) => {
         const endDim = path.join(rodzic, `${baza}_the_end`, "DIM1")
         await przenoscLubScal(netherDim, path.join(config.dataDir, level, "DIM-1"))
         await przenoscLubScal(endDim, path.join(config.dataDir, level, "DIM1"))
+
+        // panel rozpakowuje pliki jako root - serwer działa jako uid 1000 i musi
+        // być właścicielem świata (inaczej crash na tworzeniu session.lock)
+        await wykonaj("chown", ["-R", config.uidSerwera, path.join(config.dataDir, level)]).catch(() => {})
 
         if (nowaWersja) zapiszEnv({ VERSION: nowaWersja })
 
