@@ -25,6 +25,7 @@ const config = {
     envServera: process.env.MC_ENV_FILE ?? "/mc/.env",
     kontener: process.env.MC_CONTAINER ?? "minecraft-minecraft-1",
     katalogStacka: process.env.MC_STACK_DIR ?? "/mc",
+    projektCompose: process.env.MC_PROJECT ?? "minecraft",
     rconHost: process.env.RCON_HOST ?? "minecraft",
     rconPort: Number(process.env.RCON_PORT ?? 25575),
     adresSerwera: process.env.MC_ADDRESS ?? "mc.marcelizaborowski.com",
@@ -80,7 +81,8 @@ const stanSerwera = async () => {
     }
 }
 
-const startSerwera = () => docker("compose", "--project-directory", config.katalogStacka, "up", "-d")
+const startSerwera = () =>
+    docker("compose", "-p", config.projektCompose, "--project-directory", config.katalogStacka, "up", "-d")
 const stopSerwera = () => docker("stop", config.kontener)
 
 const gracze = async () => {
