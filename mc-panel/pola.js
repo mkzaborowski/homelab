@@ -2,7 +2,7 @@
 export const POLA = [
     { klucz: "VERSION", etykieta: "Wersja Minecrafta", typ: "text", uwaga: "np. 26.2 (najnowsza) albo LATEST" },
     { klucz: "TYPE", etykieta: "Silnik", typ: "select", opcje: ["PAPER", "VANILLA", "SPIGOT", "FABRIC"] },
-    { klucz: "MEMORY", etykieta: "Pamięć dla serwera", typ: "text", uwaga: "np. 2G (limit kontenera: 3G)" },
+    { klucz: "MEMORY", etykieta: "Pamięć dla serwera (sterta JVM)", typ: "text", uwaga: "np. 2560M. MUSI być wyraźnie mniej niż limit kontenera (4G) - JVM potrzebuje ~1 GB poza stertą, inaczej serwer jest ubijany przez OOM." },
     { klucz: "MOTD", etykieta: "Opis na liście serwerów", typ: "text" },
     { klucz: "LEVEL_SEED", etykieta: "Seed świata", typ: "text", uwaga: "zmiana działa dopiero po usunięciu świata" },
     { klucz: "DIFFICULTY", etykieta: "Poziom trudności", typ: "select", opcje: ["peaceful", "easy", "normal", "hard"] },
