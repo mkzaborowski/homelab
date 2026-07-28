@@ -1,0 +1,99 @@
+# Portfel IBKR
+
+Codziennie pobiera stan rachunku z Interactive Brokers (Flex Web Service),
+zapisuje historię, buduje arkusz Excel w układzie znanym z AWP i — opcjonalnie —
+wypycha go do Google Sheets. Do tego panel WWW ze statystykami portfela.
+
+Nie wymaga TWS ani IB Gateway — Flex to zwykłe REST-owe API po tokenie.
+
+## Co pokazuje panel
+
+- NAV, wartość pozycji, gotówka, wynik otwarty, zmiana dzienna
+- koncentracja top 5, ryzyko stopów (ile stracisz, jeśli wszystkie zadziałają)
+- pozycje pogrupowane w koszyki, z rozbiciem na loty (transze zakupu)
+- covered calls: dni do wygaśnięcia, ITM/OTM, czy pokryte akcjami
+- najlepsze i najsłabsze spółki, wykres NAV w czasie
+- ostrzeżenia: call w pieniądzu, call bez pokrycia, pozycja bez stopa
+
+## Czego Flex nie umie
+
+Flex **nie udostępnia otwartych zleceń**, więc poziomów stop-loss (u Ciebie
+zlecenia GTC) nie da się pobrać automatycznie. Wpisujesz je w panelu, per
+ticker. Natomiast **realizacja** stopa zaciąga się sama — sprzedaż widać
+w sekcji Trades.
+
+## Konfiguracja Flex Query (raz)
+
+Client Portal → **Reporting → Flex Queries → Activity Flex Query → +**
+
+Zaznacz sekcje:
+
+| Sekcja | Po co |
+|---|---|
+| Open Positions | pozycje, ceny, koszt — z opcją **Lots** |
+| Trades | transakcje, wykrywanie realizacji stopów |
+| Cash Report | gotówka na rachunku |
+| Net Asset Value (NAV) in Base | NAV do procentów i wykresu |
+| Change in Dividend Accruals | naliczone dywidendy |
+| Financial Instrument Information | nazwy spółek, strike i data wygaśnięcia opcji |
+
+Ustawienia: **Period = Last Business Day**, **Format = XML**, Date Format
+`yyyy-MM-dd`. Zapisz i zanotuj **Query ID**.
+
+Potem **Flex Web Service Configuration** → włącz, wygeneruj **token**,
+ogranicz go do IP serwera (`167.233.204.214`), ważność do roku.
+
+## Uruchomienie na serwerze
+
+```bash
+bosman new ibkr        # albo ręcznie: /opt/ibkr + docker-compose.yml
+```
+
+W `/opt/ibkr/.env` (wzór w [.env.przyklad](.env.przyklad)) uzupełnij
+`IBKR_TOKEN`, `IBKR_QUERY_ID`, `PANEL_HASLO`, `SECRET_KEY`.
+
+Domyślnie pobranie odpala się **pon–pt o 23:10** (`GODZINA_POBRANIA`) —
+po zamknięciu sesji w USA. Przycisk „Pobierz teraz" robi to samo ręcznie.
+
+### Dane nie opuszczają serwera
+
+Katalog `/opt/ibkr` zawiera plik **`.bez-kopii`**, przez co `bosman backup`
+pomija cały stack — ani token, ani baza portfela nie trafiają do repo
+backupów. To świadoma decyzja: dane finansowe zostają na maszynie. Backup
+zrobisz ręcznie, jeśli będziesz chciał:
+
+```bash
+docker run --rm -v ibkr_ibkr_dane:/d -v "$PWD":/out alpine tar czf /out/portfel.tgz -C /d .
+```
+
+## Google Sheets (opcjonalne)
+
+1. Google Cloud → nowy projekt → włącz **Google Sheets API**
+2. utwórz **konto serwisowe**, pobierz klucz JSON
+3. wgraj go na serwer jako `/dane/google-sa.json` w wolumenie `ibkr_dane`
+4. udostępnij swój arkusz adresowi e-mail konta serwisowego (**Edytor**)
+5. ustaw `GOOGLE_SHEET_ID` w `.env` (to fragment URL-a między `/d/` a `/edit`)
+
+Push nadpisuje zakładkę o nazwie kwartału (`Q3_2026`). Bez konfiguracji
+wszystko działa dalej — po prostu bez Sheets.
+
+## Lokalnie
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+IBKR_TOKEN=... IBKR_QUERY_ID=... .venv/bin/python zadanie.py    # jedno pobranie
+PANEL_HASLO=test COOKIE_SECURE=0 .venv/bin/python app.py        # panel na :8090
+```
+
+## Pliki
+
+| Plik | Rola |
+|---|---|
+| `flex.py` | klient Flex Web Service + parser XML |
+| `store.py` | SQLite: zrzuty dzienne, koszyki/stopy/oceny, log przebiegów |
+| `statystyki.py` | wzbogacanie pozycji, koszyki, covered calls, podsumowanie |
+| `raport_excel.py` | generator arkusza (openpyxl), jeden arkusz na kwartał |
+| `sheets.py` | push do Google Sheets |
+| `zadanie.py` | jeden przebieg: pobierz → zapisz → Excel → Sheets |
+| `app.py` | panel Flask + harmonogram |
+| `widok.py` | HTML panelu |

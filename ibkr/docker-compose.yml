@@ -1,0 +1,25 @@
+services:
+  ibkr:
+    image: ghcr.io/mkzaborowski/ibkr-portfel:${TAG:-latest}
+    container_name: ibkr
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: Europe/Warsaw
+    volumes:
+      - ibkr_dane:/dane
+    expose:
+      - "8090"
+    networks:
+      - edge
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  ibkr_dane:
+
+networks:
+  edge:
+    external: true
