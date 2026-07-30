@@ -28,14 +28,25 @@ Client Portal → **Reporting → Flex Queries → Activity Flex Query → +**
 
 Zaznacz sekcje:
 
-| Sekcja | Po co |
-|---|---|
-| Open Positions | pozycje, ceny, koszt — z opcją **Lots** |
-| Trades | transakcje, wykrywanie realizacji stopów |
-| Cash Report | gotówka na rachunku |
-| Net Asset Value (NAV) in Base | NAV do procentów i wykresu |
-| Change in Dividend Accruals | naliczone dywidendy |
-| Financial Instrument Information | nazwy spółek, strike i data wygaśnięcia opcji |
+| Sekcja | Opcja | Po co |
+|---|---|---|
+| Account Information | — | waluta bazowa rachunku |
+| Open Positions | **Lot** | pozycje, ceny, koszt, dane opcji |
+| Trades | **Execution** | transakcje, wykrywanie realizacji stopów |
+| Cash Report | **Base Currency Summary** | gotówka na rachunku |
+| Net Asset Value (NAV) in Base | — | NAV do procentów i wykresu |
+| Change in Dividend Accruals | — | naliczone dywidendy |
+
+W każdej sekcji zaznacz **Select All** na liście pól — brak jednego pola
+(np. `costBasisPrice`) daje raport, który parsuje się bez błędu, ale pokazuje zera.
+Sekcja *Financial Instrument Information* nie jest potrzebna: opis, strike
+i datę wygaśnięcia parser czyta wprost z wierszy Open Positions i Trades.
+
+Poziomy szczegółowości są istotne. Flex potrafi zwrócić pozycje jednocześnie
+jako SUMMARY i LOT, a transakcje jako ORDER i EXECUTION — zsumowanie obu
+poziomów zawyżyłoby portfel dwukrotnie. Parser sam odrzuca wiersze zbiorcze
+(`_bez_duplikatow`), więc nadmiarowe zaznaczenie nic nie zepsuje, ale **bez
+poziomu Lot nie ma rozbicia na transze ani stopów per lot**.
 
 Ustawienia: **Period = Last Business Day**, **Format = XML**, Date Format
 `yyyy-MM-dd`. Zapisz i zanotuj **Query ID**.

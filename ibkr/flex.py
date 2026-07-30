@@ -37,6 +37,7 @@ class Pozycja:
     zysk: float = 0.0          # niezrealizowany wynik
     data_otwarcia: str = ""
     lot_id: str = ""
+    poziom: str = ""           # SUMMARY / LOT - patrz uwaga przy parsowaniu
     # pola opcji - potrzebne do covered calls
     bazowy: str = ""
     strike: float = 0.0
@@ -62,6 +63,7 @@ class Transakcja:
     prowizja: float = 0.0
     zysk_zrealizowany: float = 0.0
     kod: str = ""              # kody IBKR, np. "O" otwarcie, "C" zamknięcie, "A" assignment
+    poziom: str = ""           # ORDER / EXECUTION
     bazowy: str = ""
     strike: float = 0.0
     wygasa: str = ""
@@ -176,11 +178,19 @@ def parsuj(xml_tekst: str) -> Raport:
     if info is not None:
         rap.waluta_bazowa = info.get("currency", "USD")
 
-    for nav in stmt.findall(".//EquitySummaryByReportDateInBase"):
-        rap.nav = _f(nav, "total")
+    # NAV: gdy raport zawiera też poprzedni dzień, bierzemy wiersz o najpóźniejszej
+    # dacie, a nie ostatni w pliku - kolejność w XML nie jest gwarantowana.
+    nav_wiersze = stmt.findall(".//EquitySummaryByReportDateInBase")
+    if nav_wiersze:
+        biezacy = max(nav_wiersze, key=lambda n: _s(n, "reportDate"))
+        rap.nav = _f(biezacy, "total")
+        poprzednie = [n for n in nav_wiersze if n is not biezacy]
+        if poprzednie:
+            rap.nav_poprzedni = _f(max(poprzednie, key=lambda n: _s(n, "reportDate")), "total")
 
     for p in stmt.findall(".//OpenPosition"):
         rap.pozycje.append(Pozycja(
+            poziom=_s(p, "levelOfDetail").upper(),
             konto=p.get("accountId", ""),
             symbol=_s(p, "symbol"),
             opis=_s(p, "description"),
@@ -194,7 +204,7 @@ def parsuj(xml_tekst: str) -> Raport:
             wartosc=_f(p, "positionValue"),
             zysk=_f(p, "fifoPnlUnrealized"),
             data_otwarcia=_s(p, "openDateTime", "holdingPeriodDateTime"),
-            lot_id=_s(p, "originatingTransactionID", "levelOfDetail"),
+            lot_id=_s(p, "originatingTransactionID"),
             bazowy=_s(p, "underlyingSymbol"),
             strike=_f(p, "strike"),
             wygasa=_s(p, "expiry"),
@@ -203,6 +213,7 @@ def parsuj(xml_tekst: str) -> Raport:
 
     for t in stmt.findall(".//Trade"):
         rap.transakcje.append(Transakcja(
+            poziom=_s(t, "levelOfDetail").upper(),
             konto=t.get("accountId", ""),
             symbol=_s(t, "symbol"),
             opis=_s(t, "description"),
@@ -221,7 +232,12 @@ def parsuj(xml_tekst: str) -> Raport:
             prawo=_s(t, "putCall"),
         ))
 
-    for c in stmt.findall(".//CashReportCurrency"):
+    # Gotówka: raport potrafi zawierać jednocześnie wiersze per waluta i wiersz
+    # zbiorczy BASE_SUMMARY. Zsumowanie wszystkiego dałoby podwójną gotówkę,
+    # więc gdy jest podsumowanie w walucie bazowej, bierzemy wyłącznie je.
+    kasa = stmt.findall(".//CashReportCurrency")
+    zbiorcze = [c for c in kasa if _s(c, "currency").upper() in ("BASE_SUMMARY", "BASE SUMMARY")]
+    for c in (zbiorcze or kasa):
         rap.gotowka.append(Gotowka(
             waluta=_s(c, "currency"),
             konczy=_f(c, "endingCash"),
@@ -232,4 +248,20 @@ def parsuj(xml_tekst: str) -> Raport:
     for d in stmt.findall(".//ChangeInDividendAccrual"):
         rap.dywidendy_naliczone += _f(d, "netAmount")
 
+    _bez_duplikatow(rap)
     return rap
+
+
+def _bez_duplikatow(rap: Raport) -> None:
+    """Usuwa wiersze zbiorcze, gdy w raporcie są też szczegółowe.
+
+    Flex potrafi zwrócić pozycje jednocześnie na poziomie SUMMARY i LOT, a
+    transakcje na poziomie ORDER i EXECUTION. Zsumowanie obu poziomów zawyżyłoby
+    portfel dwukrotnie, dlatego zostawiamy wyłącznie poziom szczegółowy.
+    """
+    if any(p.poziom == "LOT" for p in rap.pozycje):
+        rap.pozycje = [p for p in rap.pozycje if p.poziom != "SUMMARY"]
+
+    poziomy = {t.poziom for t in rap.transakcje}
+    if "EXECUTION" in poziomy and "ORDER" in poziomy:
+        rap.transakcje = [t for t in rap.transakcje if t.poziom != "ORDER"]
