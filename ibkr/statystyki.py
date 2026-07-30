@@ -226,7 +226,9 @@ def podsumowanie(zrzut: dict, meta: dict, poprzedni: dict | None) -> dict:
         "najlepsze": list(reversed(posortowane[-ile:])),
         "najgorsze": posortowane[:ile],
         "ryzyko_stopow": sum(ryzyka) if ryzyka else 0.0,
-        "pozycje_bez_stopa": sum(1 for p in poz_akcji if not p.get("stop")),
+        # liczymy tickery, nie loty - inaczej jedna spółka w 13 transzach
+        # raportuje "13 pozycji bez stopa" i ostrzeżenie przestaje cokolwiek znaczyć
+        "pozycje_bez_stopa": len({p.get("symbol") for p in poz_akcji if not p.get("stop")}),
         "koncentracja_top5": koncentracja,
         "waluty": dict(waluty),
         "pozycje": poz_akcji,

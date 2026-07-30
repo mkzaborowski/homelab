@@ -153,21 +153,48 @@ def _tabela_cc(cc: list[dict]) -> str:
 
 
 def _formularz_meta(pods: dict, koszyki: list[str]) -> str:
-    w = ['<table><thead><tr><th>Ticker</th><th>Koszyk</th><th>Ocena</th><th>Stop (GTC)</th><th></th></tr></thead><tbody>']
-    symbole = sorted({p["symbol"] for p in pods["pozycje"]})
-    meta = {p["symbol"]: p for p in pods["pozycje"]}
+    """Jeden formularz na całą tabelę - przy kilkudziesięciu tickerach zapisywanie
+    każdego z osobna (i przeładowanie strony po każdym) było nie do zniesienia."""
+    # agregujemy loty do tickerów i sortujemy po wartości - najpierw to, co waży
+    wartosci: dict[str, float] = {}
+    meta: dict[str, dict] = {}
+    for p in pods["pozycje"]:
+        s = p["symbol"]
+        wartosci[s] = wartosci.get(s, 0.0) + p.get("wartosc", 0.0)
+        meta.setdefault(s, p)
+    symbole = sorted(wartosci, key=lambda s: -wartosci[s])
+    wszystkie = list(dict.fromkeys(koszyki + [m["koszyk"] for m in meta.values()] + ["Nieprzypisane"]))
+
+    w = ['<form method="post" action="/meta">',
+         '<div class="tresc" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
+         'border-bottom:1px solid #223041">',
+         '<label style="display:flex;gap:7px;align-items:center;font-size:13px;color:#a7bdd6">'
+         '<input type="checkbox" onclick="document.querySelectorAll(\'input[name=zazn]\')'
+         '.forEach(c=>c.checked=this.checked)"> zaznacz wszystkie</label>',
+         '<span class="szary" style="font-size:13px">→ przypisz zaznaczone do:</span>',
+         '<select name="masowy_koszyk"><option value="">— nie zmieniaj —</option>',
+         "".join(f'<option>{e(k)}</option>' for k in wszystkie),
+         '</select>',
+         '<input name="masowy_nowy" placeholder="albo nowy koszyk…" style="width:170px">',
+         '<button class="btn" style="margin-left:auto">Zapisz zmiany</button>',
+         '</div>',
+         '<table><thead><tr><th></th><th>Ticker</th><th class="l">Udział</th><th>Koszyk</th>'
+         '<th>Ocena</th><th>Stop (GTC)</th></tr></thead><tbody>']
+
     for s in symbole:
         p = meta[s]
         opcje = "".join(f'<option{" selected" if k == p["koszyk"] else ""}>{e(k)}</option>'
-                        for k in dict.fromkeys(koszyki + [p["koszyk"], "Nieprzypisane"]))
-        w.append(f'<tr><td><form method="post" action="/meta" style="display:flex;gap:8px;align-items:center">'
-                 f'<input type="hidden" name="symbol" value="{e(s)}"><b>{e(s)}</b></td>'
-                 f'<td><select name="koszyk">{opcje}</select> '
-                 f'<input class="mini" name="nowy_koszyk" placeholder="nowy…"></td>'
-                 f'<td><input class="mini" name="ocena" value="{e(p.get("ocena",""))}"></td>'
-                 f'<td><input class="mini" name="stop" value="{p.get("stop") or ""}" placeholder="np. 280"></td>'
-                 f'<td><button class="btn szary">Zapisz</button></form></td></tr>')
-    w.append("</tbody></table>")
+                        for k in wszystkie)
+        udzial = wartosci[s] / pods["suma_aktywow"] * 100 if pods["suma_aktywow"] else 0.0
+        w.append(f'<tr><td><input type="checkbox" name="zazn" value="{e(s)}"></td>'
+                 f'<td><b>{e(s)}</b> <span class="szary">{e((p.get("opis") or "")[:26])}</span></td>'
+                 f'<td class="l">{udzial:.2f}%</td>'
+                 f'<td><select name="koszyk__{e(s)}">{opcje}</select></td>'
+                 f'<td><input class="mini" name="ocena__{e(s)}" value="{e(p.get("ocena") or "")}"></td>'
+                 f'<td><input class="mini" name="stop__{e(s)}" value="{p.get("stop") or ""}" '
+                 f'placeholder="np. 280"></td></tr>')
+    w.append('</tbody></table>'
+             '<div class="tresc"><button class="btn">Zapisz zmiany</button></div></form>')
     return "".join(w)
 
 

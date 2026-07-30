@@ -84,19 +84,31 @@ def odswiez():
 @app.post("/meta")
 @chronione
 def meta():
-    symbol = (request.form.get("symbol") or "").strip().upper()
-    if not symbol:
-        return redirect(url_for("glowna"))
-    koszyk = (request.form.get("nowy_koszyk") or request.form.get("koszyk") or "").strip()
-    stop = (request.form.get("stop") or "").strip().replace(",", ".")
-    try:
-        stop_f = float(stop) if stop else None
-    except ValueError:
-        return glowna(komunikat=f"„{stop}” to nie jest liczba", blad=True)
+    """Zapis całej tabeli naraz + opcjonalne masowe przypisanie koszyka."""
+    masowy = (request.form.get("masowy_nowy") or request.form.get("masowy_koszyk") or "").strip()
+    zaznaczone = {s.strip().upper() for s in request.form.getlist("zazn")}
 
-    store.zapisz_meta(symbol, koszyk=koszyk or None,
-                      ocena=(request.form.get("ocena") or "").strip(), stop=stop_f)
-    return glowna(komunikat=f"Zapisano {symbol}")
+    symbole = sorted({k.split("__", 1)[1] for k in request.form if k.startswith("koszyk__")})
+    zle_liczby, zapisane = [], 0
+    for s in symbole:
+        stop = (request.form.get(f"stop__{s}") or "").strip().replace(",", ".").replace(" ", "")
+        try:
+            stop_f = float(stop) if stop else None
+        except ValueError:
+            zle_liczby.append(f"{s}: „{stop}”")
+            continue
+        koszyk = (request.form.get(f"koszyk__{s}") or "").strip()
+        if masowy and s in zaznaczone:
+            koszyk = masowy
+        store.zapisz_meta(s, koszyk=koszyk or None,
+                          ocena=(request.form.get(f"ocena__{s}") or "").strip(), stop=stop_f)
+        zapisane += 1
+
+    if zle_liczby:
+        return glowna(komunikat="Pominięto - stop musi być liczbą: " + ", ".join(zle_liczby[:5]),
+                      blad=True)
+    dopisek = f", w tym {len(zaznaczone)} do „{masowy}”" if masowy and zaznaczone else ""
+    return glowna(komunikat=f"Zapisano {zapisane} tickerów{dopisek}")
 
 
 @app.get("/pobierz.xlsx")
