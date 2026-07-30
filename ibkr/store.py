@@ -56,18 +56,48 @@ def zainicjuj() -> None:
             komunikat TEXT
         );
         """)
+        # agregaty trzymamy w kolumnach, żeby wykresy nie musiały parsować
+        # JSON-a każdego dnia z osobna (przy 160 pozycjach robi się to kosztowne)
+        kolumny = {w["name"] for w in con.execute("PRAGMA table_info(zrzuty)")}
+        for nazwa in ("wartosc_pozycji", "gotowka", "koszt"):
+            if nazwa not in kolumny:
+                con.execute(f"ALTER TABLE zrzuty ADD COLUMN {nazwa} REAL")
+        if kolumny and "wartosc_pozycji" not in kolumny:
+            _uzupelnij_agregaty(con)
+
+
+def _agregaty(dane: dict) -> tuple[float, float, float]:
+    """Wartość pozycji, koszt i gotówka z surowego zrzutu (bez opcji)."""
+    poz = [p for p in dane.get("pozycje", []) if (p.get("klasa") or "").upper() != "OPT"]
+    wartosc = sum(p.get("wartosc", 0.0) for p in poz)
+    koszt = sum(p.get("koszt", 0.0) for p in poz)
+    gotowka = sum(g.get("konczy", 0.0) for g in dane.get("gotowka", []))
+    return wartosc, koszt, gotowka
+
+
+def _uzupelnij_agregaty(con) -> None:
+    """Jednorazowe wyliczenie agregatów dla zrzutów zapisanych przed migracją."""
+    for w in con.execute("SELECT data, surowy_json FROM zrzuty").fetchall():
+        wartosc, koszt, gotowka = _agregaty(json.loads(w["surowy_json"]))
+        con.execute("UPDATE zrzuty SET wartosc_pozycji=?, koszt=?, gotowka=? WHERE data=?",
+                    (wartosc, koszt, gotowka, w["data"]))
 
 
 def zapisz_zrzut(rap: Raport) -> str:
     """Zapisuje zrzut pod datą raportu. Ponowne pobranie tego samego dnia nadpisuje."""
     dzien = _normalizuj_date(rap.data) or date.today().isoformat()
+    dane = rap.jako_slownik()
+    wartosc, koszt, gotowka = _agregaty(dane)
     with polacz() as con:
         con.execute(
-            "INSERT INTO zrzuty (data, pobrano_o, konto, waluta, nav, surowy_json) "
-            "VALUES (?,?,?,?,?,?) ON CONFLICT(data) DO UPDATE SET "
-            "pobrano_o=excluded.pobrano_o, nav=excluded.nav, surowy_json=excluded.surowy_json",
+            "INSERT INTO zrzuty (data, pobrano_o, konto, waluta, nav, surowy_json,"
+            " wartosc_pozycji, koszt, gotowka) VALUES (?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(data) DO UPDATE SET pobrano_o=excluded.pobrano_o, nav=excluded.nav,"
+            " surowy_json=excluded.surowy_json, wartosc_pozycji=excluded.wartosc_pozycji,"
+            " koszt=excluded.koszt, gotowka=excluded.gotowka",
             (dzien, datetime.now().isoformat(timespec="seconds"), rap.konto,
-             rap.waluta_bazowa, rap.nav, json.dumps(rap.jako_slownik(), ensure_ascii=False)),
+             rap.waluta_bazowa, rap.nav, json.dumps(dane, ensure_ascii=False),
+             wartosc, koszt, gotowka),
         )
         # nowe symbole trafiają do koszyka "Nieprzypisane", żeby nie zniknęły z raportu
         for p in rap.pozycje:
@@ -115,6 +145,16 @@ def historia_nav(limit: int = 400) -> list[tuple[str, float]]:
         w = con.execute("SELECT data, nav FROM zrzuty ORDER BY data DESC LIMIT ?",
                         (limit,)).fetchall()
     return [(r["data"], r["nav"] or 0.0) for r in reversed(w)]
+
+
+def historia(limit: int = 800) -> list[dict]:
+    """Szereg czasowy do wykresów - rosnąco po dacie."""
+    with polacz() as con:
+        w = con.execute("SELECT data, nav, wartosc_pozycji, koszt, gotowka FROM zrzuty "
+                        "ORDER BY data DESC LIMIT ?", (limit,)).fetchall()
+    return [{"data": r["data"], "nav": r["nav"] or 0.0,
+             "wartosc": r["wartosc_pozycji"] or 0.0, "koszt": r["koszt"] or 0.0,
+             "gotowka": r["gotowka"] or 0.0} for r in reversed(w)]
 
 
 def wszystkie_dni() -> list[str]:

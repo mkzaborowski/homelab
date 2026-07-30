@@ -15,7 +15,11 @@ import zadanie
 
 HASLO = os.environ.get("PANEL_HASLO", "")
 STREFA = os.environ.get("TZ", "Europe/Warsaw")
-GODZINA = os.environ.get("GODZINA_POBRANIA", "23:10")   # po sesji w USA (22:00 CET zamknięcie)
+# Cztery pobrania dziennie: przed otwarciem USA, po otwarciu, po zamknięciu
+# i późny retry. Flex generuje Activity Statement raz na dobę, więc dodatkowe
+# pobrania nie dają cen śróddziennych - dają odporność na nieudany przebieg.
+GODZINY = os.environ.get("GODZINY_POBRANIA",
+                         os.environ.get("GODZINA_POBRANIA", "08:30,16:00,23:10,02:30"))
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
@@ -69,9 +73,12 @@ def _dane_panelu():
 @app.get("/")
 @chronione
 def glowna(komunikat="", blad=False):
-    return widok.panel(_dane_panelu(), store.historia_nav(), store.koszyki(),
-                       store.ostatnie_przebiegi(), komunikat=komunikat, blad=blad,
-                       sheets_ok=sheets.skonfigurowane())
+    pods = _dane_panelu()
+    hist = store.historia()
+    return widok.panel(pods, hist, store.koszyki(), store.ostatnie_przebiegi(),
+                       komunikat=komunikat, blad=blad, sheets_ok=sheets.skonfigurowane(),
+                       okresy=statystyki.okresy(hist, pods["nav"]) if pods else {},
+                       harmonogram=opis_harmonogramu())
 
 
 @app.post("/odswiez")
@@ -121,14 +128,32 @@ def pobierz():
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+def _pory() -> list[tuple[int, int]]:
+    """GODZINY_POBRANIA jako lista (godzina, minuta); błędne wpisy pomijamy."""
+    wynik = []
+    for kawalek in GODZINY.split(","):
+        g, _, m = kawalek.strip().partition(":")
+        try:
+            gg, mm = int(g), int(m or 0)
+        except ValueError:
+            continue
+        if 0 <= gg < 24 and 0 <= mm < 60:
+            wynik.append((gg, mm))
+    return wynik or [(23, 10)]
+
+
+def opis_harmonogramu() -> str:
+    return "pobranie pon-pt o " + ", ".join(f"{g:02d}:{m:02d}" for g, m in _pory())
+
+
 def _harmonogram():
-    """Codzienne pobranie po zamknięciu sesji w USA (pon-pt)."""
+    """Kilka pobrań dziennie (pon-pt). Zrzut jest kluczowany datą raportu,
+    więc powtórne pobranie tego samego dnia nadpisuje wpis, nie duplikuje go."""
     from apscheduler.schedulers.background import BackgroundScheduler
-    godz, _, minuta = GODZINA.partition(":")
     s = BackgroundScheduler(timezone=STREFA)
-    s.add_job(zadanie.uruchom, "cron", day_of_week="mon-fri",
-              hour=int(godz), minute=int(minuta or 0), id="pobranie",
-              misfire_grace_time=3600, coalesce=True)
+    for i, (g, m) in enumerate(_pory()):
+        s.add_job(zadanie.uruchom, "cron", day_of_week="mon-fri", hour=g, minute=m,
+                  id=f"pobranie{i}", misfire_grace_time=3600, coalesce=True)
     s.start()
     return s
 

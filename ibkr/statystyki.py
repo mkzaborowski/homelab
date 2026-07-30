@@ -231,7 +231,74 @@ def podsumowanie(zrzut: dict, meta: dict, poprzedni: dict | None) -> dict:
         "pozycje_bez_stopa": len({p.get("symbol") for p in poz_akcji if not p.get("stop")}),
         "koncentracja_top5": koncentracja,
         "waluty": dict(waluty),
+        "tickery": sorted(wg_symbolu.values(), key=lambda t: -t["wartosc"]),
+        "rozklad": rozklad_wynikow(list(wg_symbolu.values())),
+        "hhi": koncentracja_hhi(list(wg_symbolu.values()), podstawa),
+        "wiek": wiek_pozycji(poz_akcji),
+        "zyskownych": sum(1 for t in wg_symbolu.values() if t["zysk"] > 0),
+        "stratnych": sum(1 for t in wg_symbolu.values() if t["zysk"] < 0),
         "pozycje": poz_akcji,
         "opcje": poz_opcji,
         "dywidendy_naliczone": dane.get("dywidendy_naliczone", 0.0),
     }
+
+
+def okresy(hist: list[dict], nav_biezacy: float) -> dict:
+    """Zmiana NAV od początku miesiąca, kwartału, roku i od pierwszego zrzutu."""
+    if not hist:
+        return {}
+    dzis = _data(hist[-1]["data"]) or date.today()
+    progi = {
+        "MTD": date(dzis.year, dzis.month, 1),
+        "QTD": date(dzis.year, 3 * ((dzis.month - 1) // 3) + 1, 1),
+        "YTD": date(dzis.year, 1, 1),
+        "Od początku": _data(hist[0]["data"]) or dzis,
+    }
+    wynik = {}
+    for etykieta, od in progi.items():
+        # pierwszy zrzut nie starszy niż próg; gdy brak - najstarszy dostępny
+        baza = next((h for h in hist if (_data(h["data"]) or dzis) >= od), None) or hist[0]
+        start = baza["nav"] or 0.0
+        if start and baza["data"] != hist[-1]["data"]:
+            wynik[etykieta] = {"proc": (nav_biezacy - start) / start * 100,
+                               "kwota": nav_biezacy - start, "od": baza["data"]}
+    return wynik
+
+
+def rozklad_wynikow(tickery: list[dict]) -> list[dict]:
+    """Histogram wyników procentowych - do wykresu słupkowego."""
+    kubelki = [(-1e9, -20, "< -20%"), (-20, -10, "-20…-10%"), (-10, -5, "-10…-5%"),
+               (-5, 0, "-5…0%"), (0, 5, "0…5%"), (5, 10, "5…10%"),
+               (10, 20, "10…20%"), (20, 1e9, "> 20%")]
+    wynik = []
+    for lo, hi, etykieta in kubelki:
+        w = [t for t in tickery if lo <= t["zysk_proc"] < hi]
+        wynik.append({"etykieta": etykieta, "ile": len(w), "dodatni": lo >= 0,
+                      "kwota": sum(t["zysk"] for t in w)})
+    return wynik
+
+
+def koncentracja_hhi(tickery: list[dict], podstawa: float) -> float:
+    """Indeks Herfindahla-Hirschmana (0-10000). Powyżej ~2500 portfel jest skupiony."""
+    if not podstawa:
+        return 0.0
+    return sum((t["wartosc"] / podstawa * 100) ** 2 for t in tickery)
+
+
+def wiek_pozycji(pozycje: list[dict], dzis: date | None = None) -> list[dict]:
+    """Rozkład kapitału wg długości trzymania - liczony na lotach."""
+    dzis = dzis or date.today()
+    progi = [(0, 30, "< 1 mies."), (30, 90, "1-3 mies."), (90, 365, "3-12 mies."),
+             (365, 10 ** 6, "> rok")]
+    wynik = [{"etykieta": e, "wartosc": 0.0, "ile": 0} for _, _, e in progi]
+    for p in pozycje:
+        d = _data(p.get("data_otwarcia", "")[:10])
+        if not d:
+            continue
+        dni = (dzis - d).days
+        for i, (lo, hi, _) in enumerate(progi):
+            if lo <= dni < hi:
+                wynik[i]["wartosc"] += p.get("wartosc", 0.0)
+                wynik[i]["ile"] += 1
+                break
+    return wynik

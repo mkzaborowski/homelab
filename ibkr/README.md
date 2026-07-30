@@ -8,12 +8,29 @@ Nie wymaga TWS ani IB Gateway — Flex to zwykłe REST-owe API po tokenie.
 
 ## Co pokazuje panel
 
-- NAV, wartość pozycji, gotówka, wynik otwarty, zmiana dzienna
-- koncentracja top 5, ryzyko stopów (ile stracisz, jeśli wszystkie zadziałają)
-- pozycje pogrupowane w koszyki, z rozbiciem na loty (transze zakupu)
-- covered calls: dni do wygaśnięcia, ITM/OTM, czy pokryte akcjami
-- najlepsze i najsłabsze spółki, wykres NAV w czasie
-- ostrzeżenia: call w pieniądzu, call bez pokrycia, pozycja bez stopa
+Cztery zakładki, stan zapamiętywany w `localStorage`:
+
+**Przegląd** — NAV, zmiana dzienna, wynik otwarty, gotówka, liczba zyskownych
+i stratnych spółek, koncentracja top 5 wraz z indeksem HHI, ryzyko stopów oraz
+zmiany MTD / QTD / YTD i od pierwszego zrzutu. Do tego wykres NAV z przełącznikiem
+zakresu (1M / 3M / 1R / wszystko), pierścień struktury portfela i słupki
+najlepszych oraz najsłabszych pozycji.
+
+**Pozycje** — tabela wg koszyków ze zwijaniem grup, sortowaniem po każdej
+kolumnie, wyszukiwarką i rozbiciem na loty (transze zakupu) wraz ze stopami
+i dystansem do stopa. Osobno covered calls: dni do wygaśnięcia, ITM/OTM,
+pokrycie akcjami.
+
+**Analiza** — histogram wyników, udział koszyków, kapitał wg długości trzymania,
+ekspozycja walutowa, ranking największych pozycji.
+
+**Ustawienia** — koszyki, oceny i stopy oraz log pobrań.
+
+Ostrzeżenia (call w pieniądzu, call bez pokrycia, spółka bez stopa) trafiają
+na pasek nad podsumowaniem.
+
+Wykresy rysowane są własnym kodem w SVG — panel nie pobiera niczego z zewnątrz,
+działa też w trybie ciemnym systemu.
 
 ## Czego Flex nie umie
 
@@ -63,8 +80,14 @@ bosman new ibkr        # albo ręcznie: /opt/ibkr + docker-compose.yml
 W `/opt/ibkr/.env` (wzór w [.env.przyklad](.env.przyklad)) uzupełnij
 `IBKR_TOKEN`, `IBKR_QUERY_ID`, `PANEL_HASLO`, `SECRET_KEY`.
 
-Domyślnie pobranie odpala się **pon–pt o 23:10** (`GODZINA_POBRANIA`) —
-po zamknięciu sesji w USA. Przycisk „Pobierz teraz" robi to samo ręcznie.
+Domyślnie pobranie odpala się **cztery razy dziennie, pon–pt**
+(`GODZINY_POBRANIA=08:30,16:00,23:10,02:30`). Przycisk „Pobierz teraz" robi to
+samo ręcznie.
+
+Uwaga na oczekiwania: Flex generuje Activity Statement **raz na dobę**, więc
+częstsze pobrania nie dadzą cen śróddziennych — dają odporność na nieudany
+przebieg (token, timeout, przerwa u IBKR). Zrzut jest kluczowany datą raportu,
+więc powtórka tego samego dnia nadpisuje wpis, a nie dokłada drugiego.
 
 ### Dane nie opuszczają serwera
 
