@@ -160,6 +160,9 @@ def porownaj(wzor: dict, pods: dict) -> dict:
             "ticker": tic,
             "koszyk": wzor["przypisanie"].get(tic, "—"),
             "cel": c,
+            # wartość wprost z arkusza, przed przeskalowaniem - żeby dało się
+            # zestawić panel z arkuszem bez liczenia w pamięci
+            "cel_arkusz": surowy_cel.get(tic, 0.0),
             "faktyczne": f,
             "roznica": roznica,
             "kwota": roznica / 100 * podstawa,   # ile dokupić (minus) lub sprzedać (plus)

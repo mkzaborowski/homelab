@@ -542,7 +542,8 @@ def _tabela_wzorca(por: dict) -> str:
                 "sprzedaj": ("Nadwaga", "uw"), "brakuje": ("Brak w portfelu", "zle"),
                 "nadmiarowa": ("Spoza wzorca", "zle")}
     w = ['<div class="przewin"><table data-sortowalna id="tabWzorzec"><thead><tr>'
-         '<th class="sort">Ticker</th><th>Koszyk</th><th class="sort l">Cel</th>'
+         '<th class="sort">Ticker</th><th>Koszyk</th>'
+         '<th class="sort l">Arkusz</th><th class="sort l">Cel</th>'
          '<th class="sort l">Faktycznie</th><th class="sort l">Różnica</th>'
          '<th class="sort l">Kwota korekty</th><th>Stan</th></tr></thead><tbody>']
     for p in por["pozycje"]:
@@ -710,7 +711,10 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
 
   <div class="karta"><h2>Pozycje<span class="obok">posortowane po wielkości rozbieżności</span></h2>
     {_tabela_wzorca(porownanie)}
-    <div class="tresc uwaga">Kwota korekty to wartość dokupu (dodatnia) albo
+    <div class="tresc uwaga"><b>Arkusz</b> to udział wprost z Twojego wzorca,
+      <b>Cel</b> to ten sam udział przeskalowany na dostępne uniwersum
+      (mnożnik {porownanie["skala"]:.3f}) — dlatego Cel jest wyższy.
+      Kwota korekty to wartość dokupu (dodatnia) albo
       sprzedaży (ujemna) potrzebna do zrównania udziału z wzorcem, liczona
       od sumy aktywów {_pln(porownanie["podstawa"])}.</div>
   </div>
