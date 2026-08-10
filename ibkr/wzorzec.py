@@ -33,6 +33,43 @@ URL = f"https://docs.google.com/spreadsheets/d/e/{KLUCZ}/pub?output=csv"
 # to świadomy wybór użytkownika, nie przypadek.
 PROG = 0.5
 
+# --------------------------------------------------------------------------- #
+#  Instrumenty poza zasięgiem
+#
+#  Kryptowaluty są z porównania wykluczone całkowicie. Fundusze ETF i ETN
+#  notowane w USA są dla inwestora detalicznego z UE niedostępne (brak KID
+#  wymaganego przez PRIIPs), a do tego część z nich to instrumenty lewarowane
+#  i odwrotne. Takie pozycje nigdy się nie zgodzą, więc pokazywanie ich jako
+#  "brakujących" byłoby wieczną fałszywą alarmówką.
+#
+#  Udziały docelowe pozostałych pozycji są przeliczane na nowo, tak by sumowały
+#  się do 100% dostępnego uniwersum - inaczej cel byłby systematycznie zaniżony.
+# --------------------------------------------------------------------------- #
+
+# rozpoznawane po końcówce (BTCUSD, ETHUSD...) plus jawna lista
+KRYPTO = {"BTCUSD", "ETHUSD", "LTCUSD", "BCHUSD", "SOLUSD", "DOGEUSD"}
+
+# ETF-y, ETN-y i instrumenty lewarowane obecne w arkuszu
+FUNDUSZE = {
+    "SPXS", "SQQQ", "SDS",            # lewarowane odwrotne (Hedging Vehicles)
+    "SCHD", "XLE", "KWEB", "OIH",     # zwykłe ETF-y sektorowe
+    "GLD", "SLV", "SLVP", "NLR",      # metale i uran
+    "UFO", "SPCX", "ANGX", "BXDC",    # tematyczne i fundusze zamknięte
+    "SILVER",                          # pozycja towarowa, nie akcja
+}
+
+DODATKOWE = {x.strip().upper() for x in os.environ.get("WZORZEC_POMIN", "").split(",") if x.strip()}
+
+
+def poza_zasiegiem(tic: str) -> str | None:
+    """Zwraca powód wykluczenia albo None, gdy instrument jest dostępny."""
+    t = tic.upper()
+    if t in KRYPTO or t.endswith("USD"):
+        return "krypto"
+    if t in FUNDUSZE or t in DODATKOWE:
+        return "fundusz"
+    return None
+
 
 def _procent(s: str) -> float | None:
     s = (s or "").strip().replace("%", "").replace(",", ".")
@@ -93,7 +130,17 @@ def porownaj(wzor: dict, pods: dict) -> dict:
         faktyczne[t["symbol"].upper()] = udzial
         wartosci[t["symbol"].upper()] = t["wartosc"]
 
-    cel = wzor["tickery"]
+    # Wyrzucamy krypto i fundusze, a udziały reszty skalujemy tak, żeby
+    # sumowały się do 100% tego, co realnie możesz kupić.
+    surowy_cel = wzor["tickery"]
+    pominiete = {t: p for t in surowy_cel if (p := poza_zasiegiem(t))}
+    dostepne = {t: u for t, u in surowy_cel.items() if t not in pominiete}
+    suma_dostepnych = sum(dostepne.values())
+    skala = (100.0 / suma_dostepnych) if suma_dostepnych else 1.0
+    cel = {t: u * skala for t, u in dostepne.items()}
+
+    # z faktycznych też usuwamy to, czego nie porównujemy
+    faktyczne = {t: u for t, u in faktyczne.items() if not poza_zasiegiem(t)}
     wszystkie = sorted(set(cel) | set(faktyczne))
 
     pozycje = []
@@ -125,8 +172,12 @@ def porownaj(wzor: dict, pods: dict) -> dict:
     fakt_kosz: dict[str, float] = defaultdict(float)
     for p in pozycje:
         fakt_kosz[p["koszyk"]] += p["faktyczne"]
+    # koszyki liczymy z przeskalowanych celów, żeby zgadzały się z pozycjami
+    cel_kosz: dict[str, float] = defaultdict(float)
+    for t, u in cel.items():
+        cel_kosz[wzor["przypisanie"].get(t, "—")] += u
     koszyki = []
-    for nazwa, c in sorted(wzor["koszyki"].items(), key=lambda x: -x[1]):
+    for nazwa, c in sorted(cel_kosz.items(), key=lambda x: -x[1]):
         f = fakt_kosz.get(nazwa, 0.0)
         koszyki.append({"koszyk": nazwa, "cel": c, "faktyczne": f, "roznica": f - c,
                         "zgodne": abs(f - c) <= PROG})
@@ -144,4 +195,7 @@ def porownaj(wzor: dict, pods: dict) -> dict:
         "podstawa": podstawa,
         # największa pojedyncza rozbieżność - najszybszy wskaźnik "jak bardzo odjechałem"
         "max_roznica": max((abs(p["roznica"]) for p in pozycje), default=0.0),
+        "pominiete": sorted(pominiete.items()),
+        "skala": skala,
+        "suma_dostepnych": round(suma_dostepnych, 2),
     }

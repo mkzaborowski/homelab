@@ -692,6 +692,22 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
              f'{k["roznica"]:+.2f} pp</td></tr>' for k in porownanie["koszyki"])}
   </tbody></table></div></div>
 
+  <div class="karta"><h2>Pominięte w porównaniu
+      <span class="obok">{len(porownanie["pominiete"])} instrumentów ·
+        dostępne uniwersum to {porownanie["suma_dostepnych"]:.1f}% wzorca</span></h2>
+    <div class="tresc">
+      <p class="uwaga" style="margin-bottom:10px">Kryptowaluty są wyłączone,
+        a amerykańskich ETF-ów i instrumentów lewarowanych nie kupisz jako
+        inwestor detaliczny z UE. Udziały pozostałych pozycji przeliczyliśmy
+        tak, by sumowały się do 100% tego, co realnie możesz mieć
+        (mnożnik {porownanie["skala"]:.3f}).</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        {"".join(f'<span class="plak {"zle" if p == "krypto" else "uw"}">{e(t)}</span>'
+                 for t, p in porownanie["pominiete"])}
+      </div>
+    </div>
+  </div>
+
   <div class="karta"><h2>Pozycje<span class="obok">posortowane po wielkości rozbieżności</span></h2>
     {_tabela_wzorca(porownanie)}
     <div class="tresc uwaga">Kwota korekty to wartość dokupu (dodatnia) albo
