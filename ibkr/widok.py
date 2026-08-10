@@ -535,8 +535,35 @@ def _formularz_meta(p: dict, koszyki: list[str]) -> str:
     return "".join(w)
 
 
+def _tabela_wzorca(por: dict) -> str:
+    """Zestawienie udziałów docelowych i faktycznych. Kolor tylko tam, gdzie
+    przekroczono próg - inaczej cała tabela świeciłaby się bez powodu."""
+    ETYKIETY = {"zgodne": ("Zgodne", "ok"), "dokup": ("Do dokupienia", "uw"),
+                "sprzedaj": ("Nadwaga", "uw"), "brakuje": ("Brak w portfelu", "zle"),
+                "nadmiarowa": ("Spoza wzorca", "zle")}
+    w = ['<div class="przewin"><table data-sortowalna id="tabWzorzec"><thead><tr>'
+         '<th class="sort">Ticker</th><th>Koszyk</th><th class="sort l">Cel</th>'
+         '<th class="sort l">Faktycznie</th><th class="sort l">Różnica</th>'
+         '<th class="sort l">Kwota korekty</th><th>Stan</th></tr></thead><tbody>']
+    for p in por["pozycje"]:
+        et, kl = ETYKIETY[p["rodzaj"]]
+        zgodne = p["rodzaj"] == "zgodne"
+        w.append(
+            f'<tr><td><span class="tyk">{e(p["ticker"])}</span>'
+            + (' <span class="plak ok">rdzeń</span>' if p["rdzenna"] else "")
+            + f'</td><td class="uwaga">{e(p["koszyk"])}</td>'
+            f'<td class="l num" data-v="{p["cel"]}">{p["cel"]:.2f}%</td>'
+            f'<td class="l num" data-v="{p["faktyczne"]}">{p["faktyczne"]:.2f}%</td>'
+            f'<td class="l num {"mut" if zgodne else _kl(p["roznica"])}" data-v="{p["roznica"]}">'
+            f'{p["roznica"]:+.2f} pp</td>'
+            f'<td class="l num">{"—" if zgodne else _pln(-p["kwota"])}</td>'
+            f'<td><span class="plak {kl}">{et}</span></td></tr>')
+    w.append("</tbody></table></div>")
+    return "".join(w)
+
+
 def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
-          sheets_ok=False, okresy=None, harmonogram="") -> str:
+          sheets_ok=False, okresy=None, harmonogram="", porownanie=None) -> str:
     okresy = okresy or {}
     log = "".join(f'<tr><td class="num">{e(p["kiedy"])}</td>'
                   f'<td>{"OK" if p["ok"] else "<span class=\'plak zle\'>błąd</span>"}</td>'
@@ -578,6 +605,7 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
           <button data-cel="przeglad" aria-selected="true">Przegląd</button>
           <button data-cel="pozycje">Pozycje</button>
           <button data-cel="analiza">Analiza</button>
+          <button data-cel="wzorzec">Wzorzec</button>
           <button data-cel="ustawienia">Ustawienia</button></nav>"""
 
         tresc = f"""
@@ -629,6 +657,48 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
                f'<td class="l num {_kl(t["zysk_proc"])}" data-v="{t["zysk_proc"]}">{_proc(t["zysk_proc"])}</td></tr>'
                for t in p["tickery"][:20])}
     </tbody></table></div></div>
+</div>
+
+<div data-panel="wzorzec" class="panel-ukryty">
+  {("" if porownanie else '<div class="karta"><div class="tresc uwaga">'
+    'Nie udało się pobrać arkusza wzorcowego. Sprawdź log pobrań.</div></div>')}
+  {(f"""
+  <div class="karta"><h2>Zgodność z portfelem wzorcowym
+      <span class="obok">próg tolerancji {porownanie["prog"]} pp ·
+        wzorzec sumuje się do {porownanie["suma_wzorca"]:.1f}%</span></h2>
+    <div class="kafle">
+      <div class="kafel"><div class="et">Zgodne</div>
+        <div class="w num up">{porownanie["licznik"].get("zgodne", 0)}</div></div>
+      <div class="kafel"><div class="et">Do dokupienia</div>
+        <div class="w num">{porownanie["licznik"].get("dokup", 0)}</div></div>
+      <div class="kafel"><div class="et">Nadwaga</div>
+        <div class="w num">{porownanie["licznik"].get("sprzedaj", 0)}</div></div>
+      <div class="kafel"><div class="et">Brak w portfelu</div>
+        <div class="w num down">{porownanie["licznik"].get("brakuje", 0)}</div></div>
+      <div class="kafel"><div class="et">Spoza wzorca</div>
+        <div class="w num down">{porownanie["licznik"].get("nadmiarowa", 0)}</div></div>
+      <div class="kafel"><div class="et">Największa rozbieżność</div>
+        <div class="w num">{porownanie["max_roznica"]:.2f} pp</div></div>
+    </div>
+  </div>
+
+  <div class="karta"><h2>Koszyki</h2><div class="przewin"><table><thead><tr>
+    <th>Koszyk</th><th class="l">Cel</th><th class="l">Faktycznie</th>
+    <th class="l">Różnica</th></tr></thead><tbody>
+    {"".join(f'<tr><td>{e(k["koszyk"])}</td>'
+             f'<td class="l num">{k["cel"]:.2f}%</td>'
+             f'<td class="l num">{k["faktyczne"]:.2f}%</td>'
+             f'<td class="l num {"mut" if k["zgodne"] else _kl(k["roznica"])}">'
+             f'{k["roznica"]:+.2f} pp</td></tr>' for k in porownanie["koszyki"])}
+  </tbody></table></div></div>
+
+  <div class="karta"><h2>Pozycje<span class="obok">posortowane po wielkości rozbieżności</span></h2>
+    {_tabela_wzorca(porownanie)}
+    <div class="tresc uwaga">Kwota korekty to wartość dokupu (dodatnia) albo
+      sprzedaży (ujemna) potrzebna do zrównania udziału z wzorcem, liczona
+      od sumy aktywów {_pln(porownanie["podstawa"])}.</div>
+  </div>
+  """ if porownanie else "")}
 </div>
 
 <div data-panel="ustawienia" class="panel-ukryty">

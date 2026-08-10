@@ -9,17 +9,17 @@ from flask import (Flask, redirect, request, send_file, session, url_for)
 
 import sheets
 import statystyki
+import wzorzec
 import store
 import widok
 import zadanie
 
 HASLO = os.environ.get("PANEL_HASLO", "")
 STREFA = os.environ.get("TZ", "Europe/Warsaw")
-# Cztery pobrania dziennie: przed otwarciem USA, po otwarciu, po zamknięciu
-# i późny retry. Flex generuje Activity Statement raz na dobę, więc dodatkowe
-# pobrania nie dają cen śróddziennych - dają odporność na nieudany przebieg.
-GODZINY = os.environ.get("GODZINY_POBRANIA",
-                         os.environ.get("GODZINA_POBRANIA", "08:30,16:00,23:10,02:30"))
+# Co ile minut odświeżamy dane. Arkusz wzorcowy zmienia się na bieżąco,
+# więc częstotliwość ustawia właśnie on - Flex i tak generuje wyciąg raz
+# na dobę, a powtórne pobranie nadpisuje zrzut tego samego dnia.
+CO_MINUT = int(os.environ.get("CO_MINUT", "90"))
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
@@ -75,10 +75,17 @@ def _dane_panelu():
 def glowna(komunikat="", blad=False):
     pods = _dane_panelu()
     hist = store.historia()
+    por = None
+    if pods:
+        try:
+            por = wzorzec.porownaj(wzorzec.parsuj(wzorzec.pobierz()), pods)
+        except Exception as e:                                  # noqa: BLE001
+            # brak wzorca nie może wywalić całego panelu
+            app.logger.warning("Nie udało się pobrać wzorca: %s", e)
     return widok.panel(pods, hist, store.koszyki(), store.ostatnie_przebiegi(),
                        komunikat=komunikat, blad=blad, sheets_ok=sheets.skonfigurowane(),
                        okresy=statystyki.okresy(hist, pods["nav"]) if pods else {},
-                       harmonogram=opis_harmonogramu())
+                       harmonogram=opis_harmonogramu(), porownanie=por)
 
 
 @app.post("/odswiez")
@@ -128,32 +135,17 @@ def pobierz():
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
-def _pory() -> list[tuple[int, int]]:
-    """GODZINY_POBRANIA jako lista (godzina, minuta); błędne wpisy pomijamy."""
-    wynik = []
-    for kawalek in GODZINY.split(","):
-        g, _, m = kawalek.strip().partition(":")
-        try:
-            gg, mm = int(g), int(m or 0)
-        except ValueError:
-            continue
-        if 0 <= gg < 24 and 0 <= mm < 60:
-            wynik.append((gg, mm))
-    return wynik or [(23, 10)]
-
-
 def opis_harmonogramu() -> str:
-    return "pobranie pon-pt o " + ", ".join(f"{g:02d}:{m:02d}" for g, m in _pory())
+    return f"pobranie co {CO_MINUT} min"
 
 
 def _harmonogram():
-    """Kilka pobrań dziennie (pon-pt). Zrzut jest kluczowany datą raportu,
-    więc powtórne pobranie tego samego dnia nadpisuje wpis, nie duplikuje go."""
+    """Odświeżanie w stałym odstępie. Zrzut jest kluczowany datą raportu,
+    więc powtórka tego samego dnia nadpisuje wpis, nie duplikuje go."""
     from apscheduler.schedulers.background import BackgroundScheduler
     s = BackgroundScheduler(timezone=STREFA)
-    for i, (g, m) in enumerate(_pory()):
-        s.add_job(zadanie.uruchom, "cron", day_of_week="mon-fri", hour=g, minute=m,
-                  id=f"pobranie{i}", misfire_grace_time=3600, coalesce=True)
+    s.add_job(zadanie.uruchom, "interval", minutes=CO_MINUT, id="pobranie",
+              misfire_grace_time=1800, coalesce=True, max_instances=1)
     s.start()
     return s
 
