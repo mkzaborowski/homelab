@@ -152,8 +152,16 @@ def _s(el: ET.Element, *nazwy: str) -> str:
 
 
 def pobierz_raport(token: str, query_id: str, *, czekaj: int = 20,
-                   prob: int = 6, timeout: int = 60) -> str:
-    """Zwraca surowy XML raportu. Rzuca BladFlex z komunikatem IBKR."""
+                   prob: int = 20, timeout: int = 120) -> str:
+    """Pobiera raport i czeka, aż IBKR go wygeneruje.
+
+    Budżet ponawiania jest hojny celowo: wyciąg roczny buduje się u IBKR
+    znacznie dłużej niż jednodniowy, a wcześniejsze ~70 sekund kończyłoby się
+    błędem „raport nie był gotowy" przy każdym pobraniu. Kod 1019 znaczy
+    „jeszcze generuję" i nie jest błędem - czekamy dalej.
+
+    Zwraca surowy XML. Rzuca BladFlex z komunikatem od IBKR.
+    """
     r = requests.get(f"{BAZA}/SendRequest",
                      params={"t": token, "q": query_id, "v": WERSJA},
                      timeout=timeout)
