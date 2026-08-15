@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 
 import flex
+import opcje
+import powiadom
 import raport_excel
 import sheets
 import statystyki
@@ -35,6 +37,28 @@ def _kwartaly_do_raportu() -> list[tuple[dict, list[dict]]]:
     return wynik
 
 
+def _sprawdz_alerty() -> str:
+    """Progi odkupu po każdym pobraniu. Alert odpala się raz, przy przekroczeniu.
+
+    Świadomie nie przerywa przebiegu przy błędzie: nieudana wysyłka maila nie
+    może zepsuć zapisu portfela, który już się powiódł."""
+    try:
+        z = store.zrzut()
+        if not z:
+            return "alerty pominięte (brak zrzutu)"
+        a = opcje.analiza_do_panelu(z["dane"], store.transakcje(), store.zakres_rejestru())
+        nowe = store.przetworz_alerty(a["alerty"])
+        if not nowe:
+            return f"progi odkupu: {len(a['alerty'])} czynnych, nic nowego"
+        ok, opis = powiadom.wyslij(nowe)
+        for x in nowe:
+            store.oznacz_wyslane(x["symbol"], " · ".join(x["powody"]),
+                                 powiadom.KANAL or "brak", ok)
+        return f"NOWY PRÓG ODKUPU: {len(nowe)} — {opis}"
+    except Exception as e:                                      # noqa: BLE001
+        return f"alerty nie zadziałały: {type(e).__name__}: {e}"
+
+
 def uruchom(token: str | None = None, query_id: str | None = None) -> tuple[bool, str]:
     """Zwraca (czy_ok, komunikat). Nie rzuca wyjątkami - wszystko trafia do logu."""
     token = token or os.environ.get("IBKR_TOKEN", "")
@@ -59,6 +83,8 @@ def uruchom(token: str | None = None, query_id: str | None = None) -> tuple[bool
                 czesci.append(sheets.wypchnij(kwartaly[-1][0]))
             except Exception as e:                          # noqa: BLE001
                 czesci.append(f"Sheets nie zadziałało: {e}")
+
+        czesci.append(_sprawdz_alerty())
 
         kom = " · ".join(czesci)
         store.zapisz_przebieg(True, kom)

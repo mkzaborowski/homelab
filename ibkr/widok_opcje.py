@@ -187,6 +187,71 @@ def karta(p: dict) -> str:
 </div>'''
 
 
+def pasek_alertow(a: dict) -> str:
+    """Czerwony pasek nad wszystkim — to jest rzecz, na którą trzeba zareagować."""
+    if not a.get("alerty"):
+        return ""
+    w = []
+    for x in a["alerty"]:
+        w.append(f'<b>{e(x["etykieta"])}</b>: opcja po {_pln(x["cena_teraz"])} '
+                 f'(próg {_pln(x["cena_docelowa"])}), odkup dałby dziś '
+                 f'{_pln(x["zysk"])} — {e(" · ".join(x["powody"]))}')
+    return '<div class="kom zle"><b>Próg odkupu osiągnięty</b><br>' + "<br>".join(w) + '</div>'
+
+
+def tabela_odkupu(poz: list[dict]) -> str:
+    """Przy jakiej cenie opcji i jakim kursie bazowego warto odkupić."""
+    wiersze = []
+    for p in poz:
+        o = p.get("odkup")
+        if not o:
+            continue
+        for i, lv in enumerate(o["poziomy"]):
+            zalecany = abs(lv["udzial"] - o["udzial_docelowy"]) < 1e-9
+            kurs = _pln(lv["kurs_bazowego"]) if lv["kurs_bazowego"] else "—"
+            znacznik = (' <span class="plak ok">zalecany</span>' if zalecany else "")
+            osiagniete = (' <span class="plak zle">osiągnięty</span>'
+                          if lv["osiagniete"] else "")
+            wiersze.append(
+                f'<tr><td class="tyk">{e(p["etykieta"]) if i == 0 else ""}</td>'
+                f'<td class="l num">{lv["udzial"]:.0%}{znacznik}{osiagniete}</td>'
+                f'<td class="l num">{_pln(lv["cena"])}</td>'
+                f'<td class="l num">{_pln(lv["koszt"])}</td>'
+                f'<td class="l num up">{_pln(lv["zysk"])}</td>'
+                f'<td class="l num">{kurs}</td>'
+                f'<td class="l num">{_pln(p["spot"]) if i == 0 else ""}</td></tr>')
+    if not wiersze:
+        return '<div class="tresc uwaga">Brak krótkich pozycji do odkupu.</div>'
+    return ('<div class="przewin"><table><thead><tr><th>Kontrakt</th>'
+            '<th class="l">Zainkasowane</th><th class="l">Cena odkupu</th>'
+            '<th class="l">Koszt zamknięcia</th><th class="l">Zysk</th>'
+            '<th class="l">Kurs bazowego</th><th class="l">Kurs dziś</th>'
+            f'</tr></thead><tbody>{"".join(wiersze)}</tbody></table></div>')
+
+
+def tabela_miesiecy(m: list[dict]) -> str:
+    if not m:
+        return ('<div class="tresc uwaga">Rejestr transakcji jest pusty — '
+                'zestawienie wypełni się po pierwszym pobraniu z transakcjami.</div>')
+    w = ['<div class="przewin"><table><thead><tr><th>Miesiąc</th>'
+         '<th class="l">Premia brutto</th><th class="l">Prowizje</th>'
+         '<th class="l">Premia netto</th><th class="l">Odkupy</th>'
+         '<th class="l">Zysk zrealizowany</th><th class="l">Sprzedanych</th>'
+         '<th>Spółki</th></tr></thead><tbody>']
+    for x in m:
+        spolki = ", ".join(f'{e(s["bazowy"])} {_pln(s["netto"])}' for s in x["spolki"][:5])
+        w.append(f'<tr><td class="tyk">{e(x["nazwa"])}</td>'
+                 f'<td class="l num">{_pln(x["brutto"])}</td>'
+                 f'<td class="l num">−{_pln(x["prowizje"])}</td>'
+                 f'<td class="l num up"><b>{_pln(x["netto"])}</b></td>'
+                 f'<td class="l num">{_pln(x["odkup"])}</td>'
+                 f'<td class="l num {_kl(x["zrealizowany"])}">{_pln(x["zrealizowany"])}</td>'
+                 f'<td class="l num">{_licz(x["kontraktow_sprzedanych"])}</td>'
+                 f'<td class="uwaga">{spolki}</td></tr>')
+    w.append('</tbody></table></div>')
+    return "".join(w)
+
+
 def zakladka(a: dict | None) -> str:
     if not a:
         return ('<div data-panel="opcje" class="panel-ukryty"><div class="karta"><div class="tresc uwaga">'
@@ -206,6 +271,7 @@ def zakladka(a: dict | None) -> str:
         'Rejestr transakcji jest pusty — premia miesięczna wypełni się po pierwszym '
         'pobraniu z transakcjami.')
     return f'''<div data-panel="opcje" class="panel-ukryty">
+  {pasek_alertow(a)}
   <div class="karta"><h2>Opcje<span class="obok">stan na {e(a["data"])}</span></h2>
     {kafle(a)}
     <div class="tresc"><p class="uwaga">{stopka}<br>
@@ -215,5 +281,14 @@ def zakladka(a: dict | None) -> str:
       P(dotk.) — że kurs dotknie strike'a choć raz przed terminem.</p></div>
   </div>
   <div class="karta"><h2>Otwarte pozycje</h2>{tabela(a["pozycje"])}</div>
+  <div class="karta"><h2>Kiedy odkupić<span class="obok">próg dobrany do liczby dni
+      do wygaśnięcia</span></h2>{tabela_odkupu(a["pozycje"])}
+    <div class="tresc"><p class="uwaga">Kolumna „Kurs bazowego" mówi, przy jakim
+      kursie akcji opcja kosztowałaby tyle co w kolumnie obok — przy dzisiejszej
+      zmienności i dzisiejszym terminie. Sam upływ czasu obniża cenę i bez ruchu
+      kursu, więc próg zwykle zostanie osiągnięty wcześniej niż przy tym kursie.</p></div>
+  </div>
+  <div class="karta"><h2>Miesiąc po miesiącu<span class="obok">wyłącznie z faktycznych
+      transakcji</span></h2>{tabela_miesiecy(a["miesiace"])}</div>
   {karty}
 </div>'''

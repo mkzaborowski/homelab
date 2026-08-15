@@ -70,6 +70,26 @@ def zainicjuj() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_transakcje_data ON transakcje(data);
         CREATE INDEX IF NOT EXISTS idx_transakcje_klasa ON transakcje(klasa);
+        -- Alerty odkupu. Trzymamy stan, żeby nie powtarzać powiadomienia przy
+        -- każdym pobraniu: alert odpala się raz, a odbezpiecza dopiero wtedy,
+        -- gdy cena wróci powyżej progu.
+        CREATE TABLE IF NOT EXISTS alerty (
+            symbol TEXT PRIMARY KEY,
+            aktywny INTEGER NOT NULL DEFAULT 0,
+            pierwszy_raz TEXT,
+            ostatni_raz TEXT,
+            wyslano_o TEXT,
+            cena REAL, cena_docelowa REAL, zysk REAL,
+            powod TEXT
+        );
+        CREATE TABLE IF NOT EXISTS alerty_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kiedy TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            tresc TEXT,
+            kanal TEXT,
+            ok INTEGER
+        );
         """)
         # agregaty trzymamy w kolumnach, żeby wykresy nie musiały parsować
         # JSON-a każdego dnia z osobna (przy 160 pozycjach robi się to kosztowne)
@@ -260,6 +280,58 @@ def koszyki() -> list[str]:
     with polacz() as con:
         w = con.execute("SELECT DISTINCT koszyk FROM meta_pozycji ORDER BY koszyk").fetchall()
     return [r["koszyk"] for r in w if r["koszyk"]]
+
+
+def przetworz_alerty(alerty: list[dict]) -> list[dict]:
+    """Porównuje bieżące alerty z zapamiętanym stanem i zwraca te NOWE.
+
+    Alert odpala się w chwili przekroczenia progu i milczy, dopóki cena nie
+    wróci powyżej niego. Bez tego przy pobraniu co 90 minut ta sama informacja
+    przychodziłaby kilkanaście razy dziennie i przestałaby cokolwiek znaczyć."""
+    teraz = datetime.now().isoformat(timespec="seconds")
+    biezace = {a["symbol"]: a for a in alerty}
+    nowe = []
+    with polacz() as con:
+        stan = {r["symbol"]: dict(r) for r in con.execute("SELECT * FROM alerty")}
+        for symbol, a in biezace.items():
+            byl = stan.get(symbol, {}).get("aktywny", 0)
+            powod = " · ".join(a["powody"])
+            con.execute(
+                "INSERT INTO alerty (symbol, aktywny, pierwszy_raz, ostatni_raz,"
+                " cena, cena_docelowa, zysk, powod) VALUES (?,1,?,?,?,?,?,?)"
+                " ON CONFLICT(symbol) DO UPDATE SET aktywny=1, ostatni_raz=excluded.ostatni_raz,"
+                " cena=excluded.cena, cena_docelowa=excluded.cena_docelowa,"
+                " zysk=excluded.zysk, powod=excluded.powod",
+                (symbol, teraz, teraz, a["cena_teraz"], a["cena_docelowa"],
+                 a["zysk"], powod))
+            if not byl:
+                nowe.append(a)
+        # pozycje, które wyszły z progu albo zniknęły z portfela - odbezpieczamy,
+        # żeby przy ponownym spadku alert mógł odezwać się jeszcze raz
+        for symbol in stan:
+            if symbol not in biezace:
+                con.execute("UPDATE alerty SET aktywny=0 WHERE symbol=?", (symbol,))
+    return nowe
+
+
+def oznacz_wyslane(symbol: str, tresc: str, kanal: str, ok: bool) -> None:
+    teraz = datetime.now().isoformat(timespec="seconds")
+    with polacz() as con:
+        con.execute("UPDATE alerty SET wyslano_o=? WHERE symbol=?", (teraz, symbol))
+        con.execute("INSERT INTO alerty_log (kiedy, symbol, tresc, kanal, ok)"
+                    " VALUES (?,?,?,?,?)", (teraz, symbol, tresc[:1000], kanal, 1 if ok else 0))
+
+
+def stan_alertow() -> list[dict]:
+    with polacz() as con:
+        return [dict(r) for r in con.execute(
+            "SELECT * FROM alerty WHERE aktywny=1 ORDER BY ostatni_raz DESC")]
+
+
+def historia_alertow(ile: int = 20) -> list[dict]:
+    with polacz() as con:
+        return [dict(r) for r in con.execute(
+            "SELECT * FROM alerty_log ORDER BY id DESC LIMIT ?", (ile,))]
 
 
 def zapisz_przebieg(ok: bool, komunikat: str) -> None:

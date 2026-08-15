@@ -443,6 +443,107 @@ def analizuj_pozycje(dane: dict, dzis: date | None = None,
     return wynik
 
 
+# --------------------------------------------------------------------------- #
+#  próg odkupu
+# --------------------------------------------------------------------------- #
+
+# Ile premii warto zainkasować, zanim domkniemy pozycję. Im bliżej wygaśnięcia,
+# tym mniej sensu ma płacić za zamknięcie: theta i tak dokończy robotę, a każdy
+# odkup kosztuje prowizję i spread. Dlatego próg rośnie wraz z upływem czasu.
+PROGI_ODKUPU = (
+    (22, 0.50),      # powyżej 21 dni: bierz 50% i wystawiaj nowy kontrakt
+    (8, 0.65),       # 8-21 dni: 65%
+    (0, 0.80),       # ostatni tydzień: tylko gdy zostało naprawdę tanio
+)
+# Poniżej tego zwrotu w skali roku dalsze trzymanie pozycji przestaje się
+# opłacać - kapitał lepiej pracuje pod nowym kontraktem.
+MIN_ZWROT_POZOSTALY = float(os.environ.get("MIN_ZWROT_POZOSTALY", "0.15"))
+
+
+def udzial_docelowy(dni: int) -> float:
+    for prog_dni, udzial in PROGI_ODKUPU:
+        if dni >= prog_dni:
+            return udzial
+    return PROGI_ODKUPU[-1][1]
+
+
+def kurs_dla_ceny_opcji(cena_docelowa: float, K: float, T: float, r: float,
+                        q: float, sigma: float, prawo: str,
+                        S_max_mnoznik: float = 5.0) -> float | None:
+    """Przy jakim kursie bazowego opcja byłaby warta zadaną cenę.
+
+    Cena calla rośnie monotonicznie wraz z kursem, więc bisekcja zbiega zawsze.
+    Zakładamy niezmienioną zmienność i termin - to pokazuje sam wpływ kursu,
+    a nie mieszankę kursu, czasu i zmienności naraz."""
+    if T <= 0 or sigma <= 0 or cena_docelowa < 0:
+        return None
+    lo, hi = 1e-6, max(K, 1.0) * S_max_mnoznik
+    if wycen(hi, K, T, r, q, sigma, prawo) < cena_docelowa:
+        return None                      # nieosiągalne w rozsądnym zakresie
+    if wycen(lo, K, T, r, q, sigma, prawo) > cena_docelowa:
+        return None
+    for _ in range(200):
+        sr = 0.5 * (lo + hi)
+        if wycen(sr, K, T, r, q, sigma, prawo) < cena_docelowa:
+            lo = sr
+        else:
+            hi = sr
+        if hi - lo < 1e-9:
+            break
+    return 0.5 * (lo + hi)
+
+
+def prog_odkupu(p: Pozycja) -> dict | None:
+    """Sugerowana cena odkupu wraz z kursem bazowego, który by ją wywołał.
+
+    Liczymy wyłącznie dla pozycji krótkich - to je się odkupuje, żeby zamknąć
+    zysk. Dla długich taki próg nie ma sensu."""
+    if not p.krotka or not p.akcje_zaangazowane:
+        return None
+    premia_na_akcje = p.premia / p.akcje_zaangazowane
+    udzial = udzial_docelowy(p.dni)
+    cena_cel = premia_na_akcje * (1.0 - udzial)
+
+    poziomy = []
+    for u in (0.50, 0.65, 0.80, 0.90):
+        c = premia_na_akcje * (1.0 - u)
+        kurs = (kurs_dla_ceny_opcji(c, p.strike, p.dni / DNI_W_ROKU, STOPA_WOLNA,
+                                    0.0, p.iv, p.prawo) if p.iv and p.dni > 0 else None)
+        poziomy.append({
+            "udzial": u,
+            "cena": c,
+            "koszt": c * p.akcje_zaangazowane,
+            "zysk": p.premia - c * p.akcje_zaangazowane,
+            "kurs_bazowego": kurs,
+            "osiagniete": p.cena_opcji <= c + 1e-9,
+        })
+
+    kapital = p.akcje_zaangazowane * p.kurs_bazowego
+    zwrot_pozostaly = ((p.wartosc_biezaca / kapital) * (DNI_W_ROKU / p.dni)
+                       if kapital > 0 and p.dni > 0 else 0.0)
+
+    powody = []
+    if p.cena_opcji <= cena_cel + 1e-9:
+        powody.append(f"cena opcji spadła do progu {udzial:.0%} zainkasowanej premii")
+    if 0 < zwrot_pozostaly < MIN_ZWROT_POZOSTALY and p.dni > 0:
+        powody.append(f"z pozostałej premii zostało tylko {zwrot_pozostaly:.1%} w skali roku")
+
+    return {
+        "udzial_docelowy": udzial,
+        "cena_docelowa": cena_cel,
+        "koszt_docelowy": cena_cel * p.akcje_zaangazowane,
+        "zysk_docelowy": p.premia - cena_cel * p.akcje_zaangazowane,
+        "kurs_docelowy": (kurs_dla_ceny_opcji(cena_cel, p.strike, p.dni / DNI_W_ROKU,
+                                              STOPA_WOLNA, 0.0, p.iv, p.prawo)
+                          if p.iv and p.dni > 0 else None),
+        "cena_teraz": p.cena_opcji,
+        "zwrot_pozostaly": zwrot_pozostaly,
+        "poziomy": poziomy,
+        "osiagniety": bool(powody),
+        "powody": powody,
+    }
+
+
 def scenariusze(p: Pozycja, kroki=(-0.30, -0.20, -0.10, -0.05, 0.0, 0.05, 0.10, 0.20, 0.30)) -> list[dict]:
     """Wynik pozycji w dniu wygaśnięcia przy różnych kursach bazowego.
 
@@ -524,6 +625,57 @@ def zakres_miesiaca(dzis: date | None = None) -> tuple[str, str]:
     return d.replace(day=1).isoformat(), d.isoformat()
 
 
+MIESIACE_PL = ("styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec", "lipiec",
+               "sierpień", "wrzesień", "październik", "listopad", "grudzień")
+
+
+def nazwa_miesiaca(ym: str) -> str:
+    try:
+        rok, mies = ym.split("-")
+        return f"{MIESIACE_PL[int(mies) - 1]} {rok}"
+    except (ValueError, IndexError):
+        return ym
+
+
+def miesiace(transakcje: list[dict]) -> list[dict]:
+    """Rozliczenie premii miesiąc po miesiącu, od najnowszego.
+
+    Wygaśnięcie bez wartości IBKR księguje jako transakcję po cenie zero -
+    wtedy `zysk_zrealizowany` oddaje całą premię i miesiąc domyka się sam.
+    Rozbicie na spółki pokazuje, która pozycja faktycznie zarobiła.
+    """
+    opcyjne = [t for t in transakcje
+               if (t.get("klasa") or "").upper() in ("OPT", "FOP") and t.get("data")]
+    wg: dict[str, list[dict]] = {}
+    for t in opcyjne:
+        wg.setdefault((t["data"] or "")[:7], []).append(t)
+
+    out = []
+    for ym in sorted(wg, reverse=True):
+        grupa = wg[ym]
+        w = premia_okresu(grupa, f"{ym}-01", f"{ym}-31")
+        spolki: dict[str, dict] = {}
+        for t in grupa:
+            baz = t.get("bazowy") or t.get("symbol") or "?"
+            s = spolki.setdefault(baz, {"bazowy": baz, "brutto": 0.0, "prowizje": 0.0,
+                                        "odkup": 0.0, "zrealizowany": 0.0, "kontraktow": 0.0})
+            ilosc, wartosc = float(t.get("ilosc") or 0.0), float(t.get("wartosc") or 0.0)
+            s["prowizje"] += abs(float(t.get("prowizja") or 0.0))
+            s["zrealizowany"] += float(t.get("zysk_zrealizowany") or 0.0)
+            if ilosc < 0:
+                s["brutto"] += wartosc
+                s["kontraktow"] += abs(ilosc)
+            else:
+                s["odkup"] += abs(wartosc)
+        for s in spolki.values():
+            s["netto"] = s["brutto"] - s["prowizje"]
+        w["miesiac"] = ym
+        w["nazwa"] = nazwa_miesiaca(ym)
+        w["spolki"] = sorted(spolki.values(), key=lambda x: -x["netto"])
+        out.append(w)
+    return out
+
+
 def _etykieta(p: Pozycja) -> str:
     """Czytelna nazwa kontraktu zamiast symbolu OCC („LUNR  260918C00021000")."""
     d = _na_date(p.wygasa)
@@ -539,6 +691,7 @@ def analiza_do_panelu(dane: dict, transakcje: list[dict], rejestr: tuple[str, st
     pozycje = analizuj_pozycje(dane, dzis=dzis, stopa=stopa)
     od, do = zakres_miesiaca(dzis)
     call = lambda p: p.prawo.upper().startswith("C")   # noqa: E731
+    progi = {p.symbol: prog_odkupu(p) for p in pozycje}
 
     return {
         "data": dzis.isoformat(),
@@ -572,8 +725,20 @@ def analiza_do_panelu(dane: dict, transakcje: list[dict], rejestr: tuple[str, st
                            else (p.kurs_bazowego < p.strike),
             "ryzyko_wczesniejszego": p.ryzyko_wczesniejszego,
             "scenariusze": scenariusze(p),
+            "odkup": progi.get(p.symbol),
             "uwagi": p.uwagi,
         } for p in pozycje],
+        "miesiace": miesiace(transakcje),
+        "alerty": [{
+            "symbol": p.symbol,
+            "etykieta": _etykieta(p),
+            "powody": progi[p.symbol]["powody"],
+            "cena_teraz": p.cena_opcji,
+            "cena_docelowa": progi[p.symbol]["cena_docelowa"],
+            "kurs_bazowego": p.kurs_bazowego,
+            "zysk": p.premia - p.wartosc_biezaca,
+            "kontraktow": p.kontraktow,
+        } for p in pozycje if progi.get(p.symbol) and progi[p.symbol]["osiagniety"]],
     }
 
 

@@ -384,3 +384,171 @@ def test_scenariusz_bez_kursu_bazowego_jest_pusty():
     p = opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))[0]
     assert opcje.scenariusze(p) == []
     assert any("Brak kursu bazowego" in u for u in p.uwagi)
+
+
+def test_prog_odkupu_zaostrza_sie_blisko_wygasniecia():
+    """Im mniej czasu, tym mniej sensu płacić za zamknięcie - theta zrobi to
+    za darmo. Próg zainkasowanej premii musi więc rosnąć."""
+    assert opcje.udzial_docelowy(40) == 0.50
+    assert opcje.udzial_docelowy(22) == 0.50
+    assert opcje.udzial_docelowy(21) == 0.65
+    assert opcje.udzial_docelowy(8) == 0.65
+    assert opcje.udzial_docelowy(7) == 0.80
+    assert opcje.udzial_docelowy(0) == 0.80
+
+
+def test_odwrocenie_ceny_po_kursie_wraca_do_punktu_wyjscia():
+    """Kluczowy test progu: cena -> kurs -> ta sama cena."""
+    K, T, sig, prawo = 21.0, 35 / 365, 0.95, "C"
+    for S in (14.0, 19.01, 25.0):
+        cena = opcje.wycen(S, K, T, R, Q, sig, prawo)
+        wstecz = opcje.kurs_dla_ceny_opcji(cena, K, T, R, Q, sig, prawo)
+        assert wstecz is not None and abs(wstecz - S) < 1e-6, (S, wstecz)
+
+
+def test_nizsza_cena_docelowa_to_nizszy_kurs():
+    """Cena calla rośnie z kursem, więc tańszy odkup wymaga niższego kursu."""
+    K, T, sig = 21.0, 35 / 365, 0.95
+    poprzedni = None
+    for cel in (2.0, 1.5, 1.0, 0.5, 0.2):
+        k = opcje.kurs_dla_ceny_opcji(cel, K, T, R, Q, sig, "C")
+        assert k is not None
+        if poprzedni is not None:
+            assert k < poprzedni, (cel, k, poprzedni)
+        poprzedni = k
+
+
+def test_prog_odkupu_na_realnej_pozycji():
+    p = _lunr()
+    o = opcje.prog_odkupu(p)
+    assert o is not None
+    # 35 dni -> próg 50%
+    assert o["udzial_docelowy"] == 0.50
+    na_akcje = p.premia / p.akcje_zaangazowane
+    assert abs(o["cena_docelowa"] - na_akcje * 0.5) < 1e-9
+    assert abs(o["zysk_docelowy"] - p.premia * 0.5) < 1e-6
+    # cena dziś (1,56) jest wyżej niż próg, więc alert jeszcze nie działa
+    assert not o["osiagniety"]
+    # kurs, przy którym opcja spadłaby do progu, musi być poniżej dzisiejszego
+    assert o["kurs_docelowy"] is not None
+    assert o["kurs_docelowy"] < p.kurs_bazowego
+    # poziomy są uporządkowane: więcej zainkasowane = taniej i niżej
+    poz = o["poziomy"]
+    assert [x["udzial"] for x in poz] == [0.50, 0.65, 0.80, 0.90]
+    for a, b in zip(poz, poz[1:]):
+        assert b["cena"] < a["cena"] and b["zysk"] > a["zysk"]
+        assert b["kurs_bazowego"] < a["kurs_bazowego"]
+
+
+def test_alert_wlacza_sie_gdy_cena_spadnie():
+    """Ta sama pozycja, ale opcja potaniała z 1,56 do 0,60 - poniżej progu 50%
+    (0,8666 na akcję). Alert ma się odezwać."""
+    from datetime import date
+    dane = {"pozycje": [
+        {"klasa": "STK", "symbol": "LUNR", "ilosc": 470, "cena": 15.50},
+        {"klasa": "OPT", "symbol": "LUNR  260918C00021000", "bazowy": "LUNR",
+         "prawo": "C", "strike": 21.0, "wygasa": "20260918", "ilosc": -4.0,
+         "cena": 0.60, "wartosc": -240.0, "koszt": -693.239302, "zysk": 453.24},
+    ]}
+    p = opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))[0]
+    o = opcje.prog_odkupu(p)
+    assert o["osiagniety"]
+    assert any("progu" in x for x in o["powody"])
+    # zysk z odkupu to premia minus koszt zamknięcia
+    assert abs((p.premia - p.wartosc_biezaca) - 453.239302) < 1e-6
+
+
+def test_alert_gdy_zostalo_grosze_a_duzo_czasu():
+    """Drugi powód: pozostała premia daje już znikomy zwrot w skali roku."""
+    from datetime import date
+    dane = {"pozycje": [
+        {"klasa": "STK", "symbol": "MBLY", "ilosc": 1300, "cena": 8.92},
+        {"klasa": "OPT", "symbol": "MBLY  260918C00010000", "bazowy": "MBLY",
+         "prawo": "C", "strike": 10.0, "wygasa": "20260918", "ilosc": -13.0,
+         "cena": 0.01, "wartosc": -13.0, "koszt": -296.54, "zysk": 283.54},
+    ]}
+    p = opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))[0]
+    o = opcje.prog_odkupu(p)
+    assert o["osiagniety"]
+    assert o["zwrot_pozostaly"] < opcje.MIN_ZWROT_POZOSTALY
+
+
+def test_prog_odkupu_tylko_dla_krotkich():
+    from datetime import date
+    dane = {"pozycje": [
+        {"klasa": "STK", "symbol": "AAA", "ilosc": 0, "cena": 10.0},
+        {"klasa": "OPT", "symbol": "AAA   260918C00012000", "bazowy": "AAA",
+         "prawo": "C", "strike": 12.0, "wygasa": "20260918", "ilosc": 2.0,
+         "cena": 0.5, "wartosc": 100.0, "koszt": 110.0, "zysk": -10.0},
+    ]}
+    p = opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))[0]
+    assert not p.krotka
+    assert opcje.prog_odkupu(p) is None
+
+
+def test_zestawienie_miesieczne_grupuje_i_liczy():
+    tr = [
+        {"klasa": "OPT", "data": "2026-07-15", "bazowy": "LUNR", "ilosc": -2,
+         "wartosc": 300.0, "prowizja": -2.0, "zysk_zrealizowany": 0.0},
+        {"klasa": "OPT", "data": "2026-07-30", "bazowy": "LUNR", "ilosc": 2,
+         "wartosc": -80.0, "prowizja": -2.0, "zysk_zrealizowany": 216.0},
+        {"klasa": "OPT", "data": "2026-08-14", "bazowy": "MBLY", "ilosc": -13,
+         "wartosc": 312.0, "prowizja": -15.46, "zysk_zrealizowany": 0.0},
+        {"klasa": "OPT", "data": "2026-08-14", "bazowy": "LUNR", "ilosc": -4,
+         "wartosc": 696.0, "prowizja": -2.76, "zysk_zrealizowany": 0.0},
+        {"klasa": "STK", "data": "2026-08-14", "bazowy": "", "ilosc": 100,
+         "wartosc": -900.0, "prowizja": -1.0, "zysk_zrealizowany": 0.0},
+    ]
+    m = opcje.miesiace(tr)
+    assert [x["miesiac"] for x in m] == ["2026-08", "2026-07"]   # od najnowszego
+    sierpien, lipiec = m
+    assert sierpien["nazwa"] == "sierpień 2026"
+    assert abs(sierpien["brutto"] - 1008.0) < 1e-9
+    assert abs(sierpien["netto"] - (1008.0 - 18.22)) < 1e-9
+    assert {s["bazowy"] for s in sierpien["spolki"]} == {"LUNR", "MBLY"}
+    # LUNR wyżej, bo więcej netto
+    assert sierpien["spolki"][0]["bazowy"] == "LUNR"
+    assert abs(lipiec["zrealizowany"] - 216.0) < 1e-9
+    assert abs(lipiec["odkup"] - 80.0) < 1e-9
+
+
+def test_nazwa_miesiaca_po_polsku():
+    assert opcje.nazwa_miesiaca("2026-08") == "sierpień 2026"
+    assert opcje.nazwa_miesiaca("2026-01") == "styczeń 2026"
+    assert opcje.nazwa_miesiaca("bzdura") == "bzdura"
+
+
+def test_stan_alertu_odpala_sie_raz_i_odbezpiecza():
+    """Alert ma odezwać się przy przekroczeniu progu, milczeć przy kolejnych
+    pobraniach i móc odezwać się ponownie, gdy cena wróci i znów spadnie."""
+    import os, tempfile, importlib
+    kat = tempfile.mkdtemp()
+    os.environ["IBKR_DANE"] = kat
+    import store
+    importlib.reload(store)
+    store.zainicjuj()
+
+    a = {"symbol": "LUNR  260918C00021000", "etykieta": "LUNR call 21",
+         "powody": ["cena opcji spadła do progu"], "cena_teraz": 0.60,
+         "cena_docelowa": 0.87, "kurs_bazowego": 15.5, "zysk": 453.24,
+         "kontraktow": 4}
+
+    assert len(store.przetworz_alerty([a])) == 1        # pierwsze przekroczenie
+    assert len(store.przetworz_alerty([a])) == 0        # to samo -> cisza
+    assert len(store.przetworz_alerty([a])) == 0
+    assert len(store.stan_alertow()) == 1
+
+    store.przetworz_alerty([])                          # cena wróciła powyżej progu
+    assert len(store.stan_alertow()) == 0
+    assert len(store.przetworz_alerty([a])) == 1        # znowu spadła -> alert wraca
+
+
+def test_powiadomienie_bez_konfiguracji_nie_udaje_sukcesu():
+    import powiadom
+    ok, opis = powiadom.wyslij([{"etykieta": "X", "cena_teraz": 1.0,
+                                 "cena_docelowa": 0.5, "kurs_bazowego": 10.0,
+                                 "zysk": 100.0, "kontraktow": 1, "powody": ["test"]}])
+    assert ok is False
+    assert "kanał" in opis or "brakuje" in opis
+    # brak alertów to poprawny wynik, nie błąd
+    assert powiadom.wyslij([])[0] is True
