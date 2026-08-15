@@ -105,6 +105,15 @@ def zainicjuj() -> None:
         -- reszta zasila atrybucję dochodu.
         -- Liczby podane przez IBKR, trzymane wyłącznie do uzgadniania
         -- z własnymi wyliczeniami. Nigdy nie zastępują naszych metryk.
+        -- Wygaśnięcia, wykonania i przypisania opcji. Domykają rozliczenie
+        -- premii: kontrakt wygasły bez wartości oddaje ją w całości.
+        CREATE TABLE IF NOT EXISTS zdarzenia_opcji (
+            klucz TEXT PRIMARY KEY,
+            symbol TEXT, bazowy TEXT, data TEXT, rodzaj TEXT, klasa TEXT,
+            ilosc REAL, cena REAL, zysk_zrealizowany REAL, koszt_nabycia REAL,
+            dodano TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_zdarzenia_data ON zdarzenia_opcji(data);
         CREATE TABLE IF NOT EXISTS uzgodnienie (
             klucz TEXT PRIMARY KEY, wartosc REAL, kiedy TEXT
         );
@@ -194,6 +203,7 @@ def zapisz_zrzut(rap: Raport) -> str:
         _zapisz_transakcje(con, dane.get("transakcje", []))
         _zapisz_nav_dzienny(con, dane.get("historia_nav", []))
         _zapisz_operacje(con, dane.get("operacje", []))
+        _zapisz_zdarzenia(con, dane.get("zdarzenia_opcji", []))
         if rap.twr_ibkr is not None:
             con.execute("INSERT INTO uzgodnienie (klucz, wartosc, kiedy) VALUES ('twr',?,?)"
                         " ON CONFLICT(klucz) DO UPDATE SET wartosc=excluded.wartosc,"
@@ -366,6 +376,28 @@ def _zapisz_operacje(con, operacje: list[dict]) -> int:
             (klucz, data, o.get("rodzaj"), o.get("kwota") or 0.0, o.get("waluta"),
              o.get("symbol"), o.get("opis"), teraz)).rowcount
     return ile
+
+
+def _zapisz_zdarzenia(con, zdarzenia: list[dict]) -> int:
+    teraz = datetime.now().isoformat(timespec="seconds")
+    ile = 0
+    for z in zdarzenia:
+        klucz = "|".join(str(z.get(k) or "") for k in
+                         ("symbol", "data", "rodzaj", "ilosc", "cena", "zysk_zrealizowany"))
+        ile += con.execute(
+            "INSERT OR IGNORE INTO zdarzenia_opcji (klucz, symbol, bazowy, data, rodzaj,"
+            " klasa, ilosc, cena, zysk_zrealizowany, koszt_nabycia, dodano)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (klucz, z.get("symbol"), z.get("bazowy"), _normalizuj_date(z.get("data") or ""),
+             z.get("rodzaj"), z.get("klasa"), z.get("ilosc") or 0.0, z.get("cena") or 0.0,
+             z.get("zysk_zrealizowany") or 0.0, z.get("koszt_nabycia") or 0.0, teraz)).rowcount
+    return ile
+
+
+def zdarzenia_opcji() -> list[dict]:
+    with polacz() as con:
+        return [dict(r) for r in con.execute(
+            "SELECT * FROM zdarzenia_opcji ORDER BY data")]
 
 
 def zapisz_uzgodnienie(klucz: str, wartosc) -> None:

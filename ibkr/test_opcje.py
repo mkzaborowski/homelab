@@ -613,3 +613,82 @@ def test_brak_tokenu_nie_wywraca_pobierania():
     assert notowania.pobierz(["LUNR"]) == {}
     assert notowania.pobierz([]) == {}
     assert notowania.skonfigurowane() is False
+
+
+# --------------------------------------------------------------------------- #
+#  faza 4: cykl życia i kubełki
+# --------------------------------------------------------------------------- #
+
+def test_kubelki_dte_maja_rozlaczne_granice():
+    assert opcje.kubelek_dte(0) == "0–7 dni"
+    assert opcje.kubelek_dte(7) == "0–7 dni"
+    assert opcje.kubelek_dte(8) == "8–14 dni"
+    assert opcje.kubelek_dte(30) == "15–30 dni"
+    assert opcje.kubelek_dte(31) == "31–60 dni"
+    assert opcje.kubelek_dte(90) == "61–90 dni"
+    assert opcje.kubelek_dte(400) == "ponad 90 dni"
+
+
+def test_kubelki_sumuja_caly_portfel():
+    from datetime import date
+    dane = {"pozycje": [
+        {"klasa": "STK", "symbol": "LUNR", "ilosc": 470, "cena": 19.01},
+        {"klasa": "STK", "symbol": "MBLY", "ilosc": 1317, "cena": 8.92},
+        {"klasa": "OPT", "symbol": "LUNR  260918C00021000", "bazowy": "LUNR",
+         "prawo": "C", "strike": 21.0, "wygasa": "20260918", "ilosc": -4.0,
+         "cena": 1.56, "wartosc": -624.0, "koszt": -693.24, "zysk": 69.24},
+        {"klasa": "OPT", "symbol": "MBLY  260821C00010000", "bazowy": "MBLY",
+         "prawo": "C", "strike": 10.0, "wygasa": "20260821", "ilosc": -13.0,
+         "cena": 0.25, "wartosc": -325.0, "koszt": -296.54, "zysk": -28.46},
+    ]}
+    poz = opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))
+    k = opcje.kubelki_wygasniec(poz)
+    assert {x["kubelek"] for x in k} == {"0–7 dni", "31–60 dni"}
+    assert sum(x["kontraktow"] for x in k) == sum(p.kontraktow for p in poz)
+    assert abs(sum(x["premia"] for x in k) - sum(p.premia for p in poz)) < 1e-9
+
+
+def test_moneyness_opisuje_polozenie():
+    from datetime import date
+    def _poz(spot, strike):
+        dane = {"pozycje": [
+            {"klasa": "STK", "symbol": "X", "ilosc": 1000, "cena": spot},
+            {"klasa": "OPT", "symbol": f"X 260918C{strike}", "bazowy": "X",
+             "prawo": "C", "strike": strike, "wygasa": "20260918", "ilosc": -1.0,
+             "cena": 0.5, "wartosc": -50.0, "koszt": -55.0, "zysk": 5.0}]}
+        return opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))[0]
+    assert opcje.moneyness(_poz(12.0, 10.0))["etykieta"] == "głęboko w pieniądzu"
+    assert opcje.moneyness(_poz(10.2, 10.0))["etykieta"] == "w pieniądzu"
+    assert opcje.moneyness(_poz(9.8, 10.0))["etykieta"] == "tuż przy pieniądzu"
+    assert opcje.moneyness(_poz(9.2, 10.0))["etykieta"] == "blisko pieniądza"
+    assert opcje.moneyness(_poz(7.0, 10.0))["etykieta"] == "daleko poza pieniądzem"
+
+
+def test_cykl_zycia_liczy_wynik_z_nogi_akcyjnej():
+    """Sedno: przy przypisaniu wiersz opcji ma zysk zero, bo premię
+    zainkasowano wcześniej. Faktyczny wynik siedzi na sprzedaży akcji -
+    pokazanie samej opcji sugerowałoby, że przypisanie nic nie kosztuje.
+    Dane odwzorowują prawdziwe zdarzenia z rachunku."""
+    zdarzenia = [
+        {"symbol": "SNAP  251107C00008000", "rodzaj": "Assignment", "klasa": "OPT",
+         "ilosc": 4, "zysk_zrealizowany": 0.0, "data": "2025-11-07"},
+        {"symbol": "SNAP", "rodzaj": "Sell", "klasa": "STK", "ilosc": -400,
+         "cena": 8.0, "zysk_zrealizowany": 128.20, "data": "2025-11-07"},
+        {"symbol": "S     260306C00014000", "rodzaj": "Assignment", "klasa": "OPT",
+         "ilosc": 32, "zysk_zrealizowany": 0.0, "data": "2026-03-06"},
+        {"symbol": "S", "rodzaj": "Sell", "klasa": "STK", "ilosc": -3200,
+         "cena": 14.0, "zysk_zrealizowany": -7078.54, "data": "2026-03-06"},
+        {"symbol": "ZZZ   260101C00005000", "rodzaj": "Expiration", "klasa": "OPT",
+         "ilosc": 10, "zysk_zrealizowany": 0.0, "data": "2026-01-01"},
+    ]
+    c = opcje.cykl_zycia(zdarzenia)
+    assert c["wygaslo"] == 1 and c["kontraktow_wygaslo"] == 10
+    assert c["przypisano"] == 2 and c["kontraktow_przypisano"] == 36
+    # wynik bierze się z nogi akcyjnej, nie z opcji
+    assert abs(c["wynik_nogi_akcyjnej"] - (128.20 - 7078.54)) < 1e-9
+    assert c["najslabsze"][0]["symbol"] == "S"
+
+
+def test_cykl_zycia_pusty_nie_wywala():
+    c = opcje.cykl_zycia([])
+    assert c["wygaslo"] == 0 and c["wynik_nogi_akcyjnej"] == 0.0

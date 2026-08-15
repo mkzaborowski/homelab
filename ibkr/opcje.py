@@ -586,6 +586,109 @@ def scenariusze(p: Pozycja, kroki=(-0.30, -0.20, -0.10, -0.05, 0.0, 0.05, 0.10, 
     return out
 
 
+# --------------------------------------------------------------------------- #
+#  cykl życia kontraktów
+# --------------------------------------------------------------------------- #
+
+# Kubełki dni do wygaśnięcia. Granice nie są dowolne: do tygodnia gamma rośnie
+# gwałtownie i pozycja wymaga uwagi, powyżej trzech miesięcy praktycznie nic
+# się nie dzieje poza powolnym topnieniem wartości czasowej.
+KUBELKI_DTE = ((0, 7, "0–7 dni"), (8, 14, "8–14 dni"), (15, 30, "15–30 dni"),
+               (31, 60, "31–60 dni"), (61, 90, "61–90 dni"), (91, 99999, "ponad 90 dni"))
+
+
+def kubelek_dte(dni: int) -> str:
+    for lo, hi, etykieta in KUBELKI_DTE:
+        if lo <= dni <= hi:
+            return etykieta
+    return KUBELKI_DTE[-1][2]
+
+
+def kubelki_wygasniec(pozycje: list[Pozycja]) -> list[dict]:
+    """Rozkład ekspozycji po terminach. Pokazuje, ile ryzyka wisi na najbliższym
+    wygaśnięciu, a ile jest rozłożone dalej w czasie."""
+    wg: dict[str, dict] = {}
+    for _, _, etykieta in KUBELKI_DTE:
+        wg[etykieta] = {"kubelek": etykieta, "kontraktow": 0.0, "premia": 0.0,
+                        "do_zainkasowania": 0.0, "delta_akcji": 0.0,
+                        "theta": 0.0, "notional": 0.0, "pozycji": 0}
+    for p in pozycje:
+        w = wg[kubelek_dte(p.dni)]
+        w["pozycji"] += 1
+        w["kontraktow"] += p.kontraktow
+        w["premia"] += p.premia
+        w["do_zainkasowania"] += p.do_zainkasowania
+        w["delta_akcji"] += p.delta_akcji
+        w["theta"] += p.theta_dzienna
+        w["notional"] += p.akcje_zaangazowane * p.strike
+    return [w for w in wg.values() if w["pozycji"]]
+
+
+def moneyness(p: Pozycja) -> dict:
+    """Położenie kursu wobec strike'a.
+
+    Dla calla iloraz S/K: powyżej jedności kontrakt jest w pieniądzu.
+    Etykieta celowo opisowa, bo „0,94" nic nie mówi bez kontekstu."""
+    if not p.strike or not p.kurs_bazowego:
+        return {"iloraz": None, "etykieta": "brak kursu"}
+    x = p.kurs_bazowego / p.strike
+    call = p.prawo.upper().startswith("C")
+    if not call:
+        x = p.strike / p.kurs_bazowego
+    if x >= 1.10:
+        et = "głęboko w pieniądzu"
+    elif x >= 1.0:
+        et = "w pieniądzu"
+    elif x >= 0.97:
+        et = "tuż przy pieniądzu"
+    elif x >= 0.90:
+        et = "blisko pieniądza"
+    else:
+        et = "daleko poza pieniądzem"
+    return {"iloraz": x, "etykieta": et}
+
+
+def cykl_zycia(zdarzenia: list[dict]) -> dict:
+    """Rozliczenie zamkniętych kontraktów z sekcji OptionEAE.
+
+    Trzy różne zakończenia i każde znaczy co innego:
+
+      wygaśnięcie bez wartości - premia zostaje w całości, najlepszy wynik,
+      przypisanie - premia zostaje, ale akcje odchodzą po strike'u i to na
+        nodze akcyjnej siedzi faktyczny wynik transakcji,
+      wykonanie - lustrzane odbicie przypisania przy pozycji długiej.
+
+    Wynik przypisania liczymy z nogi AKCYJNEJ, nie opcyjnej. Wiersz opcji ma
+    tam zysk zerowy, bo premię zainkasowano wcześniej - pokazanie tylko jego
+    sugerowałoby, że przypisanie nic nie kosztuje.
+    """
+    wygasle, przypisane, akcje = [], [], []
+    for z in zdarzenia:
+        rodzaj = (z.get("rodzaj") or "").lower()
+        klasa = (z.get("klasa") or "").upper()
+        if rodzaj == "expiration":
+            wygasle.append(z)
+        elif rodzaj in ("assignment", "exercise"):
+            przypisane.append(z)
+        elif klasa == "STK":
+            akcje.append(z)
+
+    wynik_akcji = sum(float(a.get("zysk_zrealizowany") or 0.0) for a in akcje)
+    najgorsze = sorted(akcje, key=lambda a: float(a.get("zysk_zrealizowany") or 0.0))[:5]
+    return {
+        "wygaslo": len(wygasle),
+        "kontraktow_wygaslo": sum(abs(float(z.get("ilosc") or 0.0)) for z in wygasle),
+        "przypisano": len(przypisane),
+        "kontraktow_przypisano": sum(abs(float(z.get("ilosc") or 0.0)) for z in przypisane),
+        "wynik_nogi_akcyjnej": wynik_akcji,
+        "sprzedazy": len(akcje),
+        "najslabsze": [{"symbol": a.get("symbol"), "data": a.get("data"),
+                        "wynik": float(a.get("zysk_zrealizowany") or 0.0),
+                        "cena": float(a.get("cena") or 0.0)} for a in najgorsze],
+        "zdarzen": len(zdarzenia),
+    }
+
+
 def premia_okresu(transakcje: list[dict], od: str, do: str) -> dict:
     """Rozliczenie premii opcyjnej za okres, wyłącznie z faktycznych transakcji.
 
@@ -697,7 +800,8 @@ def _etykieta(p: Pozycja) -> str:
 
 def analiza_do_panelu(dane: dict, transakcje: list[dict], rejestr: tuple[str, str, int],
                       dzis: date | None = None, stopa: float = STOPA_WOLNA,
-                      kursy: dict[str, dict] | None = None) -> dict:
+                      kursy: dict[str, dict] | None = None,
+                      zdarzenia: list[dict] | None = None) -> dict:
     """Wszystko, czego potrzebuje zakładka opcji, w jednym słowniku."""
     dzis = dzis or date.today()
     pozycje = analizuj_pozycje(dane, dzis=dzis, stopa=stopa, kursy=kursy)
@@ -738,10 +842,14 @@ def analiza_do_panelu(dane: dict, transakcje: list[dict], rejestr: tuple[str, st
                            else (p.kurs_bazowego < p.strike),
             "ryzyko_wczesniejszego": p.ryzyko_wczesniejszego,
             "scenariusze": scenariusze(p),
+            "moneyness": moneyness(p),
+            "kubelek": kubelek_dte(p.dni),
             "odkup": progi.get(p.symbol),
             "uwagi": p.uwagi,
         } for p in pozycje],
         "miesiace": miesiace(transakcje),
+        "kubelki": kubelki_wygasniec(pozycje),
+        "cykl": cykl_zycia(zdarzenia or []),
         "alerty": [{
             "symbol": p.symbol,
             "etykieta": _etykieta(p),

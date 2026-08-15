@@ -142,6 +142,25 @@ class Instrument:
 
 
 @dataclass
+class ZdarzenieOpcji:
+    """Wiersz z OptionEAE: wygaśnięcie, wykonanie albo przypisanie.
+
+    Przypisanie przychodzi w PARZE: wiersz opcji (zysk zero, bo premia była
+    zainkasowana wcześniej) oraz wiersz sprzedaży akcji po cenie wykonania,
+    i to na nim siedzi faktyczny wynik. Pokazanie samej nogi opcyjnej
+    sugerowałoby, że przypisanie jest darmowe."""
+    symbol: str = ""
+    bazowy: str = ""
+    data: str = ""
+    rodzaj: str = ""           # Expiration | Assignment | Exercise | Sell | Buy
+    ilosc: float = 0.0
+    cena: float = 0.0
+    zysk_zrealizowany: float = 0.0
+    koszt_nabycia: float = 0.0
+    klasa: str = ""
+
+
+@dataclass
 class Raport:
     """Znormalizowany zrzut stanu konta z jednego raportu Flex."""
     konto: str = ""
@@ -160,6 +179,7 @@ class Raport:
     # z własnym wyliczeniem - to jedyny niezależny punkt odniesienia, jaki
     # w ogóle mamy dla poprawności silnika zwrotu.
     twr_ibkr: float | None = None
+    zdarzenia_opcji: list[ZdarzenieOpcji] = field(default_factory=list)
 
     def jako_slownik(self) -> dict:
         d = asdict(self)
@@ -341,6 +361,21 @@ def parsuj(xml_tekst: str) -> Raport:
                 symbol=_s(c, "symbol"),
                 opis=_s(c, "description"),
             ))
+
+    for z in stmt.findall(".//OptionEAE"):
+        if not _s(z, "symbol"):
+            continue
+        rap.zdarzenia_opcji.append(ZdarzenieOpcji(
+            symbol=_s(z, "symbol"),
+            bazowy=_s(z, "underlyingSymbol") or _s(z, "symbol").split()[0],
+            data=_s(z, "date", "reportDate"),
+            rodzaj=_s(z, "transactionType"),
+            ilosc=_f(z, "quantity"),
+            cena=_f(z, "tradePrice"),
+            zysk_zrealizowany=_f(z, "realizedPnl"),
+            koszt_nabycia=_f(z, "costBasis"),
+            klasa=_s(z, "assetCategory"),
+        ))
 
     zmiana = stmt.find(".//ChangeInNAV")
     if zmiana is not None and zmiana.get("twr") not in (None, ""):

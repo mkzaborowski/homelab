@@ -117,7 +117,8 @@ def glowna(komunikat="", blad=False):
             z = store.zrzut()
             kursy = notowania.pobierz(notowania.symbole_ze_zrzutu(z["dane"]))
             analiza_opcji = opcje.analiza_do_panelu(
-                z["dane"], store.transakcje(), store.zakres_rejestru(), kursy=kursy)
+                z["dane"], store.transakcje(), store.zakres_rejestru(), kursy=kursy,
+                zdarzenia=store.zdarzenia_opcji())
         except Exception as e:                                  # noqa: BLE001
             app.logger.warning("Nie udało się policzyć opcji: %s", e)
         try:

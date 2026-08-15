@@ -252,6 +252,64 @@ def tabela_miesiecy(m: list[dict]) -> str:
     return "".join(w)
 
 
+def tabela_kubelkow(k: list[dict]) -> str:
+    """Rozkład ekspozycji po terminach wygaśnięcia."""
+    if not k:
+        return '<div class="tresc uwaga">Brak otwartych kontraktów.</div>'
+    w = ['<div class="przewin"><table><thead><tr><th>Termin</th>'
+         '<th class="l">Pozycji</th><th class="l">Kontraktów</th>'
+         '<th class="l">Premia</th><th class="l">Do wzięcia</th>'
+         '<th class="l">Delta</th><th class="l">Theta/d</th>'
+         '<th class="l">Kapitał pod przyp.</th></tr></thead><tbody>']
+    for x in k:
+        w.append(f'<tr><td class="tyk">{e(x["kubelek"])}</td>'
+                 f'<td class="l num">{x["pozycji"]}</td>'
+                 f'<td class="l num">{_licz(x["kontraktow"])}</td>'
+                 f'<td class="l num">{_pln(x["premia"])}</td>'
+                 f'<td class="l num">{_pln(x["do_zainkasowania"])}</td>'
+                 f'<td class="l num">{_licz(x["delta_akcji"])}</td>'
+                 f'<td class="l num {_kl(x["theta"])}">{_pln(x["theta"])}</td>'
+                 f'<td class="l num">{_pln(x["notional"])}</td></tr>')
+    w.append('</tbody></table></div>')
+    return "".join(w)
+
+
+def karta_cyklu(c: dict) -> str:
+    """Jak kończyły się dotychczasowe kontrakty."""
+    if not c or not c.get("zdarzen"):
+        return ""
+    kafle_c = "".join([
+        _kafel("Wygasło bez wartości", f'{c["wygaslo"]}', "up",
+               f'{_licz(c["kontraktow_wygaslo"])} kontraktów · premia w całości zostaje'),
+        _kafel("Przypisano", f'{c["przypisano"]}', "mut",
+               f'{_licz(c["kontraktow_przypisano"])} kontraktów · akcje odeszły po strike\'u'),
+        _kafel("Wynik na sprzedanych akcjach", _pln(c["wynik_nogi_akcyjnej"]),
+               _kl(c["wynik_nogi_akcyjnej"]), "z wymuszonych sprzedaży przy przypisaniu"),
+    ])
+    najs = ""
+    if c.get("najslabsze"):
+        wiersze = "".join(
+            f'<tr><td class="tyk">{e(x["symbol"])}</td><td>{e(x["data"])}</td>'
+            f'<td class="l num">{_pln(x["cena"])}</td>'
+            f'<td class="l num {_kl(x["wynik"])}">{_pln(x["wynik"])}</td></tr>'
+            for x in c["najslabsze"] if x["wynik"] < 0)
+        if wiersze:
+            najs = ('<div class="przewin"><table><thead><tr><th>Spółka</th><th>Data</th>'
+                    '<th class="l">Cena wykonania</th><th class="l">Wynik</th>'
+                    f'</tr></thead><tbody>{wiersze}</tbody></table></div>')
+    return f'''<div class="karta"><h2>Jak kończyły się kontrakty<span class="obok">
+      {c["zdarzen"]} zdarzeń w rejestrze</span></h2>
+    <div class="kafle">{kafle_c}</div>
+    <div class="tresc"><p class="uwaga">Wygaśnięcie bez wartości to najlepsze
+      zakończenie: premia zostaje w całości. Przy przypisaniu premia też zostaje,
+      ale akcje odchodzą po cenie wykonania — i to na tej sprzedaży siedzi
+      faktyczny wynik transakcji. Sam wiersz opcji pokazuje zero, bo premię
+      zainkasowano wcześniej, więc patrzenie tylko na niego sugerowałoby,
+      że przypisanie nic nie kosztuje.</p></div>
+    {najs}
+  </div>'''
+
+
 def zakladka(a: dict | None) -> str:
     if not a:
         return ('<div data-panel="opcje" class="panel-ukryty"><div class="karta"><div class="tresc uwaga">'
@@ -288,6 +346,9 @@ def zakladka(a: dict | None) -> str:
       zmienności i dzisiejszym terminie. Sam upływ czasu obniża cenę i bez ruchu
       kursu, więc próg zwykle zostanie osiągnięty wcześniej niż przy tym kursie.</p></div>
   </div>
+  <div class="karta"><h2>Terminy wygaśnięcia<span class="obok">gdzie wisi
+      ryzyko w czasie</span></h2>{tabela_kubelkow(a.get("kubelki") or [])}</div>
+  {karta_cyklu(a.get("cykl") or {})}
   <div class="karta"><h2>Miesiąc po miesiącu<span class="obok">wyłącznie z faktycznych
       transakcji</span></h2>{tabela_miesiecy(a["miesiace"])}</div>
   {karty}
