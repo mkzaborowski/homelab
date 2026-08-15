@@ -113,6 +113,35 @@ class DzienNAV:
 
 
 @dataclass
+class Operacja:
+    """Wiersz z sekcji CashTransaction: przelew, dywidenda, odsetki, podatek."""
+    # transactionID jest jedynym polem odróżniającym dwa identyczne przelewy
+    # tego samego dnia. Bez niego trzy wpłaty po 300 000 z 25.08.2025 zlewały
+    # się w jedną i zaniżały przepływy o dwie trzecie.
+    id_operacji: str = ""
+    data: str = ""
+    rodzaj: str = ""           # Deposits/Withdrawals | Dividends | ...
+    kwota: float = 0.0         # już przeliczona na walutę bazową
+    waluta: str = ""
+    symbol: str = ""
+    opis: str = ""
+
+
+@dataclass
+class Instrument:
+    """Wiersz z SecurityInfo - kanoniczne dane instrumentu."""
+    symbol: str = ""
+    conid: str = ""
+    isin: str = ""
+    nazwa: str = ""
+    klasa: str = ""
+    podkategoria: str = ""
+    gielda: str = ""
+    kraj: str = ""
+    mnoznik: float = 1.0
+
+
+@dataclass
 class Raport:
     """Znormalizowany zrzut stanu konta z jednego raportu Flex."""
     konto: str = ""
@@ -125,6 +154,8 @@ class Raport:
     gotowka: list[Gotowka] = field(default_factory=list)
     dywidendy_naliczone: float = 0.0
     historia_nav: list[DzienNAV] = field(default_factory=list)
+    operacje: list[Operacja] = field(default_factory=list)
+    instrumenty: list[Instrument] = field(default_factory=list)
 
     def jako_slownik(self) -> dict:
         d = asdict(self)
@@ -284,6 +315,40 @@ def parsuj(xml_tekst: str) -> Raport:
             prawo=_s(t, "putCall"),
             id_transakcji=_s(t, "tradeID", "transactionID", "ibOrderID"),
             otwarcie=_s(t, "openCloseIndicator"),
+        ))
+
+    # Operacje gotówkowe. Ta sama pułapka co przy pozycjach i transakcjach:
+    # raport zawiera wiersz SUMMARY i DETAIL dla tej samej operacji. Zsumowanie
+    # obu podwoiło przelewy (1 192 059 zamiast 596 029) i wywracało cały zwrot.
+    kasa = stmt.findall(".//CashTransaction")
+    if kasa:
+        poziomy = {_s(c, "levelOfDetail") for c in kasa}
+        wybrany = "DETAIL" if "DETAIL" in poziomy else (poziomy.pop() if poziomy else "")
+        for c in kasa:
+            if wybrany and _s(c, "levelOfDetail") != wybrany:
+                continue
+            rap.operacje.append(Operacja(
+                id_operacji=_s(c, "transactionID", "actionID"),
+                data=_s(c, "reportDate", "dateTime", "settleDate"),
+                rodzaj=_s(c, "type"),
+                # kwota przeliczona na walutę bazową - konto ma GBP i USD
+                kwota=_f(c, "amount") * (_f(c, "fxRateToBase", 1.0) or 1.0),
+                waluta=_s(c, "currency"),
+                symbol=_s(c, "symbol"),
+                opis=_s(c, "description"),
+            ))
+
+    for si in stmt.findall(".//SecurityInfo"):
+        rap.instrumenty.append(Instrument(
+            symbol=_s(si, "symbol"),
+            conid=_s(si, "conid"),
+            isin=_s(si, "isin"),
+            nazwa=_s(si, "description"),
+            klasa=_s(si, "assetCategory"),
+            podkategoria=_s(si, "subCategory"),
+            gielda=_s(si, "listingExchange"),
+            kraj=_s(si, "issuerCountryCode"),
+            mnoznik=_f(si, "multiplier", 1.0) or 1.0,
         ))
 
     # Gotówka: raport potrafi zawierać jednocześnie wiersze per waluta i wiersz

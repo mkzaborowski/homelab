@@ -38,10 +38,13 @@ def test_wyplata_nie_jest_strata():
 
 
 def test_wplata_i_zysk_rozdzielone():
-    """NAV rośnie o 150 000: 100 000 to wpłata, 50 000 to zarobek na 1 mln."""
+    """NAV rośnie o 150 000: 100 000 to wpłata, reszta to zarobek.
+
+    Przy konwencji uzgodnionej z IBKR wpłata pracuje od początku dnia, więc
+    podstawą jest 1,1 mln, a nie 1 mln: 1 150 000 / 1 100 000 - 1."""
     szereg = _szereg([1_000_000.0, 1_150_000.0])
     r = zwrot.zwroty_dzienne(szereg, {"2026-01-02": 100_000.0})
-    assert abs(r[0][1] - 0.05) < 1e-12
+    assert abs(r[0][1] - (1_150_000 / 1_100_000 - 1)) < 1e-12
 
 
 # --------------------------------------------------------------------------- #
@@ -187,6 +190,44 @@ def test_annualizacja_odmawia_przy_krotkim_okresie():
     assert abs(r - 0.10) < 1e-9
     r2 = zwrot.annualizuj(0.10, 182)
     assert r2 > 0.20                          # pół roku +10% to ponad 20% rocznie
+
+
+def test_konwencja_zgodna_z_ibkr():
+    """Uzgodnienie wobec rzeczywistego wyciągu rocznego IBKR.
+
+    Prawdziwe dane z rachunku, 25.08.2025: NAV 22 972,56 dzień wcześniej,
+    268 578,48 po wpłacie 245 403. Portfel zarobił tego dnia grosze — cała
+    reszta przyrostu to przelew.
+
+    Obie konwencje dają wynik dodatni, ale różnią się o rząd wielkości,
+    a przez 27 dni z przelewami różnica narasta do 1,3 pp w skali roku.
+    Wersja z przepływem w mianowniku trafia w TWR podane przez IBKR
+    (40,479%) co do trzeciego miejsca po przecinku.
+    """
+    szereg = [{"data": "2025-08-22", "nav": 22_972.56},
+              {"data": "2025-08-25", "nav": 268_578.48}]
+    pf = {"2025-08-25": 245_403.00}
+    r = zwrot.zwroty_dzienne(szereg, pf)[0][1]
+    # przepływ w mianowniku: 268 578,48 / (22 972,56 + 245 403) - 1
+    assert abs(r - (268_578.48 / 268_375.56 - 1.0)) < 1e-12
+    assert 0.0 < r < 0.002                      # ułamek procenta, nie kilkaset
+
+    # odejmowanie w liczniku zawyża dzień o ponad rząd wielkości
+    zla = (268_578.48 - 245_403.00) / 22_972.56 - 1.0
+    assert zla > 10 * r
+
+
+def test_przeplywy_biora_tylko_przelewy():
+    """Dywidenda i odsetki to wynik portfela, nie wpłata inwestora.
+    Wrzucenie ich do przepływów zaniżyłoby zwrot o to, co portfel zarobił."""
+    ops = [
+        {"rodzaj": "Deposits/Withdrawals", "data": "2026-01-05", "kwota": 10_000.0},
+        {"rodzaj": "Dividends", "data": "2026-01-06", "kwota": 500.0},
+        {"rodzaj": "Broker Interest Received", "data": "2026-01-07", "kwota": 120.0},
+        {"rodzaj": "Withholding Tax", "data": "2026-01-08", "kwota": -75.0},
+    ]
+    pf = zwrot.przeplywy_z_operacji(ops)
+    assert pf == {"2026-01-05": 10_000.0}
 
 
 def test_podsumowanie_mowi_ze_danych_za_malo():

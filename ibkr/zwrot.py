@@ -42,19 +42,23 @@ def _na_date(s) -> date | None:
 #  przepływy zewnętrzne
 # --------------------------------------------------------------------------- #
 
-def przeplywy_z_transakcji(transakcje: list[dict]) -> dict[str, float]:
-    """Wpłaty i wypłaty w rozbiciu na dni.
+RODZAJ_PRZELEWU = "Deposits/Withdrawals"
 
-    UWAGA: raport Flex w obecnej konfiguracji nie zawiera sekcji przelewów,
-    więc dopóki nie pojawi się w zapytaniu, zwracamy pustkę. To jest świadome:
-    lepiej policzyć TWR bez przepływów i powiedzieć o tym wprost, niż zgadywać
-    które zmiany gotówki były przelewem, a które rozliczeniem transakcji."""
+
+def przeplywy_z_operacji(operacje: list[dict]) -> dict[str, float]:
+    """Wpłaty i wypłaty w rozbiciu na dni, z sekcji CashTransaction.
+
+    Bierzemy WYŁĄCZNIE rodzaj „Deposits/Withdrawals". Dywidendy, odsetki
+    i podatki są wynikiem portfela, nie przepływem od inwestora - wrzucenie
+    ich tutaj zaniżyłoby zwrot o kwotę, którą portfel faktycznie zarobił.
+    """
     out: dict[str, float] = {}
-    for t in transakcje:
-        if (t.get("klasa") or "").upper() in ("CASH_TRANSFER", "DEPOSIT", "WITHDRAWAL"):
-            d = _na_date(t.get("data"))
-            if d:
-                out[d.isoformat()] = out.get(d.isoformat(), 0.0) + float(t.get("wartosc") or 0.0)
+    for o in operacje:
+        if (o.get("rodzaj") or "") != RODZAJ_PRZELEWU:
+            continue
+        d = _na_date(o.get("data"))
+        if d:
+            out[d.isoformat()] = out.get(d.isoformat(), 0.0) + float(o.get("kwota") or 0.0)
     return out
 
 
@@ -84,17 +88,26 @@ def zwroty_dzienne(szereg: list[dict],
                    przeplywy: dict[str, float] | None = None) -> list[tuple[str, float]]:
     """Dzienne stopy zwrotu z korektą o przepływy zewnętrzne.
 
-    Wzór na dzień t:  r = (NAV_t - przepływ_t) / NAV_(t-1) - 1
-    Przepływ wchodzi na koniec dnia, bo tak księguje go wyciąg dzienny.
-    Bez tego odjęcia wpłata podniosłaby stopę zwrotu, choć nic nie zarobiła."""
+    Wzór na dzień t:  r = NAV_t / (NAV_(t-1) + przepływ_t) - 1
+
+    Przepływ wchodzi do MIANOWNIKA, czyli traktujemy go jako dostępny od
+    początku dnia. Nie jest to wybór teoretyczny - wynika z uzgodnienia
+    z rocznym wyciągiem IBKR, który sam podaje TWR w sekcji ChangeInNAV.
+    Przy tej konwencji trafiamy w jego liczbę co do trzeciego miejsca po
+    przecinku (40,479%), a przy przepływie na koniec dnia rozjeżdżamy się
+    o 1,3 pp. Wersja z odejmowaniem w liczniku jest równie „logiczna",
+    ale opisuje inne księgowanie niż to, które stosuje IBKR.
+    """
     przeplywy = przeplywy or {}
     out = []
     for a, b in zip(szereg, szereg[1:]):
         n0, n1 = a.get("nav") or 0.0, b.get("nav") or 0.0
         if n0 <= 0:
             continue
-        pf = przeplywy.get(b["data"], 0.0)
-        out.append((b["data"], (n1 - pf) / n0 - 1.0))
+        podstawa = n0 + przeplywy.get(b["data"], 0.0)
+        if podstawa <= 0:
+            continue
+        out.append((b["data"], n1 / podstawa - 1.0))
     return out
 
 
@@ -234,7 +247,7 @@ def obsuniecia(szereg: list[dict]) -> dict:
 #  zestawienie
 # --------------------------------------------------------------------------- #
 
-def podsumowanie(szereg: list[dict], transakcje: list[dict] | None = None) -> dict:
+def podsumowanie(szereg: list[dict], operacje: list[dict] | None = None) -> dict:
     """Komplet miar zwrotu wraz z informacją, czy w ogóle są policzalne.
 
     Każda miara niesie `dostepne` i `obserwacji`, żeby panel nigdy nie
@@ -242,7 +255,7 @@ def podsumowanie(szereg: list[dict], transakcje: list[dict] | None = None) -> di
     if len(szereg) < 2:
         return {"dostepne": False, "obserwacji": len(szereg), "powod": "brak historii"}
 
-    przeplywy = przeplywy_z_transakcji(transakcje or [])
+    przeplywy = przeplywy_z_operacji(operacje or [])
     r = zwroty_dzienne(szereg, przeplywy)
     n = len(r)
     od, do = szereg[0]["data"], szereg[-1]["data"]
@@ -252,8 +265,11 @@ def podsumowanie(szereg: list[dict], transakcje: list[dict] | None = None) -> di
     calkowity = twr(szereg, przeplywy)
     nav0, nav1 = szereg[0].get("nav") or 0.0, szereg[-1].get("nav") or 0.0
 
-    # MWR: przepływy od inwestora plus wartość końcowa jako wypływ
-    pf = [(od, -nav0)] + [(d, k) for d, k in sorted(przeplywy.items())] + [(do, nav1)]
+    # MWR liczymy z perspektywy INWESTORA, nie rachunku: wartość początkowa
+    # i każda wpłata to jego wydatek (znak ujemny), a wartość końcowa to
+    # wpływ. W danych z Flexa wpłata ma znak dodatni, bo tam patrzymy od
+    # strony konta - stąd odwrócenie znaku.
+    pf = [(od, -nav0)] + [(d, -k) for d, k in sorted(przeplywy.items())] + [(do, nav1)]
 
     return {
         "dostepne": True,

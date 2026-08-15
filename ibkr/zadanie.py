@@ -86,6 +86,7 @@ def uruchom(token: str | None = None, query_id: str | None = None) -> tuple[bool
         # lądowało w koszyku „Nieprzypisane"
         dane = rap.jako_slownik()
         store.zapisz_instrumenty(dane.get("pozycje", []))
+        store.wzbogac_instrumenty(dane.get("instrumenty", []))
         try:
             przyp = wzorzec.parsuj(wzorzec.pobierz()).get("przypisanie", {})
         except Exception:                                       # noqa: BLE001
@@ -98,7 +99,9 @@ def uruchom(token: str | None = None, query_id: str | None = None) -> tuple[bool
         if kwartaly:
             raport_excel.zbuduj(PLIK_XLSX, kwartaly)
 
-        czesci = [f"zapisano {dzien}", f"{len(rap.pozycje)} pozycji", czesci_klas]
+        czesci = [f"zapisano {dzien}", f"{len(rap.pozycje)} pozycji",
+                  f"{len(rap.historia_nav)} dni NAV", f"{len(rap.operacje)} operacji",
+                  czesci_klas]
         if sheets.skonfigurowane() and kwartaly:
             try:
                 czesci.append(sheets.wypchnij(kwartaly[-1][0]))

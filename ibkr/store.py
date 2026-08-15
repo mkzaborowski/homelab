@@ -100,6 +100,16 @@ def zainicjuj() -> None:
             PRIMARY KEY (symbol, wymiar, wartosc)
         );
         CREATE INDEX IF NOT EXISTS idx_klas_wymiar ON klasyfikacja(wymiar);
+        -- Operacje gotówkowe: przelewy, dywidendy, odsetki, podatki. Przelewy
+        -- są potrzebne silnikowi zwrotu (bez nich wpłata liczy się jako zysk),
+        -- reszta zasila atrybucję dochodu.
+        CREATE TABLE IF NOT EXISTS operacje (
+            klucz TEXT PRIMARY KEY,
+            data TEXT NOT NULL, rodzaj TEXT NOT NULL,
+            kwota REAL, waluta TEXT, symbol TEXT, opis TEXT,
+            dodano TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_operacje_rodzaj ON operacje(rodzaj, data);
         CREATE TABLE IF NOT EXISTS nav_dzienny (
             data TEXT PRIMARY KEY,          -- YYYY-MM-DD
             nav REAL NOT NULL,
@@ -178,6 +188,7 @@ def zapisz_zrzut(rap: Raport) -> str:
                 con.execute("INSERT OR IGNORE INTO meta_pozycji (symbol) VALUES (?)", (p.symbol,))
         _zapisz_transakcje(con, dane.get("transakcje", []))
         _zapisz_nav_dzienny(con, dane.get("historia_nav", []))
+        _zapisz_operacje(con, dane.get("operacje", []))
     return dzien
 
 
@@ -324,6 +335,54 @@ def klasyfikacja(wymiar: str | None = None) -> dict[str, list[dict]]:
         for r in con.execute(q, par):
             out.setdefault(r["symbol"], []).append(dict(r))
     return out
+
+
+def _zapisz_operacje(con, operacje: list[dict]) -> int:
+    teraz = datetime.now().isoformat(timespec="seconds")
+    ile = 0
+    for o in operacje:
+        data = _normalizuj_date(o.get("data") or "")
+        if not data:
+            continue
+        # transactionID od IBKR jest unikalny. Odcisk z samych wartości NIE
+        # wystarcza: trzy przelewy po 300 000 tego samego dnia mają identyczne
+        # wszystkie pola poza identyfikatorem i zlewały się w jeden wiersz.
+        tid = (o.get("id_operacji") or "").strip()
+        klucz = f"id:{tid}" if tid else "odcisk:" + "|".join(
+            str(o.get(k) or "") for k in ("data", "rodzaj", "kwota", "waluta", "symbol", "opis"))
+        ile += con.execute(
+            "INSERT OR IGNORE INTO operacje (klucz, data, rodzaj, kwota, waluta,"
+            " symbol, opis, dodano) VALUES (?,?,?,?,?,?,?,?)",
+            (klucz, data, o.get("rodzaj"), o.get("kwota") or 0.0, o.get("waluta"),
+             o.get("symbol"), o.get("opis"), teraz)).rowcount
+    return ile
+
+
+def operacje(rodzaj: str | None = None) -> list[dict]:
+    q, par = "SELECT * FROM operacje", []
+    if rodzaj:
+        q += " WHERE rodzaj=?"; par.append(rodzaj)
+    q += " ORDER BY data"
+    with polacz() as con:
+        return [dict(r) for r in con.execute(q, par)]
+
+
+def wzbogac_instrumenty(lista: list[dict]) -> int:
+    """Dane z SecurityInfo: conid, giełda, kraj emitenta, podkategoria."""
+    ile = 0
+    with polacz() as con:
+        for i in lista:
+            s = i.get("symbol")
+            if not s:
+                continue
+            ile += con.execute(
+                "UPDATE instrumenty SET conid=COALESCE(NULLIF(?,''), conid),"
+                " isin=COALESCE(NULLIF(?,''), isin), nazwa=COALESCE(NULLIF(?,''), nazwa),"
+                " gielda=COALESCE(NULLIF(?,''), gielda), mnoznik=?"
+                " WHERE symbol=?",
+                (i.get("conid") or "", i.get("isin") or "", i.get("nazwa") or "",
+                 i.get("gielda") or "", i.get("mnoznik") or 1.0, s)).rowcount
+    return ile
 
 
 def nav_dzienny(limit: int = 3000) -> list[dict]:
