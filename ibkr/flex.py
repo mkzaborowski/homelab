@@ -156,6 +156,10 @@ class Raport:
     historia_nav: list[DzienNAV] = field(default_factory=list)
     operacje: list[Operacja] = field(default_factory=list)
     instrumenty: list[Instrument] = field(default_factory=list)
+    # TWR policzone przez samo IBKR. Trzymamy je po to, żeby móc porównać
+    # z własnym wyliczeniem - to jedyny niezależny punkt odniesienia, jaki
+    # w ogóle mamy dla poprawności silnika zwrotu.
+    twr_ibkr: float | None = None
 
     def jako_slownik(self) -> dict:
         d = asdict(self)
@@ -337,6 +341,10 @@ def parsuj(xml_tekst: str) -> Raport:
                 symbol=_s(c, "symbol"),
                 opis=_s(c, "description"),
             ))
+
+    zmiana = stmt.find(".//ChangeInNAV")
+    if zmiana is not None and zmiana.get("twr") not in (None, ""):
+        rap.twr_ibkr = _f(zmiana, "twr")
 
     for si in stmt.findall(".//SecurityInfo"):
         rap.instrumenty.append(Instrument(

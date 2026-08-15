@@ -9,6 +9,8 @@ from flask import (Flask, redirect, request, send_file, session, url_for)
 
 import notowania
 import opcje
+import ryzyko
+import zwrot
 import sheets
 import statystyki
 import wzorzec
@@ -69,6 +71,29 @@ def healthz():
     return {"status": "ok"}
 
 
+def _analityka(hist, pods) -> dict:
+    """Zwrot, ryzyko i koncentracja - liczone raz na żądanie strony.
+
+    Docelowo przeniesie się do dziennej migawki (§16 briefu), ale przy 262
+    dniach i 58 spółkach liczy się w kilkadziesiąt milisekund, więc na razie
+    nie ma czego optymalizować."""
+    ops = store.operacje()
+    z = zwrot.podsumowanie(hist, ops)
+    if not z.get("dostepne"):
+        return {"zwrot": z, "szereg": hist}
+    dzienne = [x for _, x in z["zwroty"]]
+    r = ryzyko.podsumowanie(dzienne, z["obsuniecia"], z["twr_roczny"])
+    wartosci = {t["symbol"]: t["wartosc"] for t in (pods or {}).get("tickery", [])}
+    return {
+        "zwrot": z,
+        "ryzyko": r,
+        "koncentracja": ryzyko.koncentracja(wartosci),
+        "miesiace": zwrot.zwroty_miesieczne(hist, zwrot.przeplywy_z_operacji(ops)),
+        "szereg": hist,
+        "uzgodnienie": {"ibkr": store.twr_ibkr()},
+    }
+
+
 def _dane_panelu():
     z = store.zrzut()
     if not z:
@@ -81,7 +106,7 @@ def _dane_panelu():
 def glowna(komunikat="", blad=False):
     pods = _dane_panelu()
     hist = store.historia()
-    por = analiza_opcji = None
+    por = analiza_opcji = analityka = None
     if pods:
         try:
             por = wzorzec.porownaj(wzorzec.parsuj(wzorzec.pobierz()), pods)
@@ -95,11 +120,15 @@ def glowna(komunikat="", blad=False):
                 z["dane"], store.transakcje(), store.zakres_rejestru(), kursy=kursy)
         except Exception as e:                                  # noqa: BLE001
             app.logger.warning("Nie udało się policzyć opcji: %s", e)
+        try:
+            analityka = _analityka(hist, pods)
+        except Exception as e:                                  # noqa: BLE001
+            app.logger.warning("Nie udało się policzyć analityki: %s", e)
     return widok.panel(pods, hist, store.koszyki(), store.ostatnie_przebiegi(),
                        komunikat=komunikat, blad=blad, sheets_ok=sheets.skonfigurowane(),
                        okresy=statystyki.okresy(hist, pods["nav"]) if pods else {},
                        harmonogram=opis_harmonogramu(), porownanie=por,
-                       analiza_opcji=analiza_opcji)
+                       analiza_opcji=analiza_opcji, analityka=analityka)
 
 
 @app.post("/odswiez")

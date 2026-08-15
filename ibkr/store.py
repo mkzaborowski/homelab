@@ -103,6 +103,11 @@ def zainicjuj() -> None:
         -- Operacje gotówkowe: przelewy, dywidendy, odsetki, podatki. Przelewy
         -- są potrzebne silnikowi zwrotu (bez nich wpłata liczy się jako zysk),
         -- reszta zasila atrybucję dochodu.
+        -- Liczby podane przez IBKR, trzymane wyłącznie do uzgadniania
+        -- z własnymi wyliczeniami. Nigdy nie zastępują naszych metryk.
+        CREATE TABLE IF NOT EXISTS uzgodnienie (
+            klucz TEXT PRIMARY KEY, wartosc REAL, kiedy TEXT
+        );
         CREATE TABLE IF NOT EXISTS operacje (
             klucz TEXT PRIMARY KEY,
             data TEXT NOT NULL, rodzaj TEXT NOT NULL,
@@ -189,6 +194,11 @@ def zapisz_zrzut(rap: Raport) -> str:
         _zapisz_transakcje(con, dane.get("transakcje", []))
         _zapisz_nav_dzienny(con, dane.get("historia_nav", []))
         _zapisz_operacje(con, dane.get("operacje", []))
+        if rap.twr_ibkr is not None:
+            con.execute("INSERT INTO uzgodnienie (klucz, wartosc, kiedy) VALUES ('twr',?,?)"
+                        " ON CONFLICT(klucz) DO UPDATE SET wartosc=excluded.wartosc,"
+                        " kiedy=excluded.kiedy",
+                        (rap.twr_ibkr, datetime.now().isoformat(timespec="seconds")))
     return dzien
 
 
@@ -356,6 +366,23 @@ def _zapisz_operacje(con, operacje: list[dict]) -> int:
             (klucz, data, o.get("rodzaj"), o.get("kwota") or 0.0, o.get("waluta"),
              o.get("symbol"), o.get("opis"), teraz)).rowcount
     return ile
+
+
+def zapisz_uzgodnienie(klucz: str, wartosc) -> None:
+    if wartosc is None:
+        return
+    with polacz() as con:
+        con.execute("INSERT INTO uzgodnienie (klucz, wartosc, kiedy) VALUES (?,?,?)"
+                    " ON CONFLICT(klucz) DO UPDATE SET wartosc=excluded.wartosc,"
+                    " kiedy=excluded.kiedy",
+                    (klucz, float(wartosc), datetime.now().isoformat(timespec="seconds")))
+
+
+def twr_ibkr() -> float | None:
+    """TWR policzone przez IBKR - punkt odniesienia dla naszego silnika."""
+    with polacz() as con:
+        r = con.execute("SELECT wartosc FROM uzgodnienie WHERE klucz='twr'").fetchone()
+    return r["wartosc"] if r else None
 
 
 def operacje(rodzaj: str | None = None) -> list[dict]:

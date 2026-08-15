@@ -247,6 +247,32 @@ def obsuniecia(szereg: list[dict]) -> dict:
 #  zestawienie
 # --------------------------------------------------------------------------- #
 
+def zwroty_miesieczne(szereg: list[dict],
+                      przeplywy: dict[str, float] | None = None) -> list[dict]:
+    """Stopy miesięczne złożone z dziennych.
+
+    Składamy iloczynem, nie sumujemy: miesiąc +10% i -10% to -1%, nie zero.
+    Miesiąc niepełny (bieżący) jest oznaczony, żeby nie porównywać go
+    z zamkniętymi tak, jakby był kompletny."""
+    dzienne = zwroty_dzienne(szereg, przeplywy)
+    if not dzienne:
+        return []
+    wg: dict[str, list[float]] = {}
+    for data, r in dzienne:
+        wg.setdefault(data[:7], []).append(r)
+    # ostatni miesiąc szeregu jest z definicji niepełny - dane kończą się
+    # w połowie. Pierwszy też, bo zaczynamy od dowolnego dnia.
+    pierwszy, ostatni = dzienne[0][0][:7], dzienne[-1][0][:7]
+    out = []
+    for ym in sorted(wg):
+        il = 1.0
+        for r in wg[ym]:
+            il *= (1.0 + r)
+        out.append({"miesiac": ym, "zwrot": il - 1.0, "dni": len(wg[ym]),
+                    "pelny": ym not in (pierwszy, ostatni)})
+    return out
+
+
 def podsumowanie(szereg: list[dict], operacje: list[dict] | None = None) -> dict:
     """Komplet miar zwrotu wraz z informacją, czy w ogóle są policzalne.
 
