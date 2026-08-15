@@ -552,3 +552,64 @@ def test_powiadomienie_bez_konfiguracji_nie_udaje_sukcesu():
     assert "kanał" in opis or "brakuje" in opis
     # brak alertów to poprawny wynik, nie błąd
     assert powiadom.wyslij([])[0] is True
+
+
+def test_normalizacja_symbolu_opcji():
+    import notowania
+    assert notowania.symbol_opcji("LUNR  260918C00021000") == "LUNR260918C00021000"
+    assert notowania.symbol_opcji("ANGX  260821C00005000") == "ANGX260821C00005000"
+    assert notowania.symbol_opcji("lunr") == "LUNR"
+    assert notowania.symbol_opcji("") == ""
+
+
+def test_cena_z_notowania_woli_srodek_widelek():
+    """Przy niepłynnej serii „last" bywa sprzed godzin — środek widełek
+    jest bliżej tego, po czym faktycznie wykona się odkup."""
+    import notowania
+    assert notowania._cena_z_wiersza({"bid": 1.50, "ask": 1.62, "last": 9.99}) == 1.56
+    # brak widełek -> schodzimy na last, potem close
+    assert notowania._cena_z_wiersza({"bid": 0, "ask": 0, "last": 1.40}) == 1.40
+    assert notowania._cena_z_wiersza({"last": 0, "close": 2.20}) == 2.20
+    assert notowania._cena_z_wiersza({}) is None
+
+
+def test_symbole_do_odpytania_obejmuja_bazowe():
+    import notowania
+    dane = {"pozycje": [
+        {"klasa": "OPT", "symbol": "LUNR  260918C00021000", "bazowy": "LUNR"},
+        {"klasa": "OPT", "symbol": "MBLY  260918C00010000", "bazowy": "MBLY"},
+        {"klasa": "STK", "symbol": "AAPL", "bazowy": ""},
+    ]}
+    s = notowania.symbole_ze_zrzutu(dane)
+    assert "LUNR  260918C00021000" in s and "LUNR" in s and "MBLY" in s
+    assert "AAPL" not in s          # akcje bez opcji nas nie interesują
+
+
+def test_notowania_nadpisuja_ceny_z_wyciagu():
+    """Świeższa cena musi zmienić i wycenę pozycji, i próg odkupu."""
+    from datetime import date
+    dane = {"pozycje": [
+        {"klasa": "STK", "symbol": "LUNR", "ilosc": 470, "cena": 19.01},
+        {"klasa": "OPT", "symbol": "LUNR  260918C00021000", "bazowy": "LUNR",
+         "prawo": "C", "strike": 21.0, "wygasa": "20260918", "ilosc": -4.0,
+         "cena": 1.56, "wartosc": -624.0, "koszt": -693.239302, "zysk": 69.239302},
+    ]}
+    bez = opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))[0]
+    assert bez.cena_opcji == 1.56 and bez.kurs_bazowego == 19.01
+    assert bez.wartosc_biezaca == 624.0
+
+    kursy = {"LUNR  260918C00021000": {"cena": 0.60}, "LUNR": {"cena": 15.50}}
+    z = opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14), kursy=kursy)[0]
+    assert z.cena_opcji == 0.60 and z.kurs_bazowego == 15.50
+    # wartość bieżąca przeliczona z nowej ceny, nie wzięta z wyciągu
+    assert abs(z.wartosc_biezaca - 0.60 * 4 * 100) < 1e-9
+    # i to właśnie odpala próg odkupu
+    assert opcje.prog_odkupu(z)["osiagniety"]
+    assert not opcje.prog_odkupu(bez)["osiagniety"]
+
+
+def test_brak_tokenu_nie_wywraca_pobierania():
+    import notowania
+    assert notowania.pobierz(["LUNR"]) == {}
+    assert notowania.pobierz([]) == {}
+    assert notowania.skonfigurowane() is False

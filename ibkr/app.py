@@ -7,6 +7,7 @@ from functools import wraps
 
 from flask import (Flask, redirect, request, send_file, session, url_for)
 
+import notowania
 import opcje
 import sheets
 import statystyki
@@ -21,6 +22,10 @@ STREFA = os.environ.get("TZ", "Europe/Warsaw")
 # więc częstotliwość ustawia właśnie on - Flex i tak generuje wyciąg raz
 # na dobę, a powtórne pobranie nadpisuje zrzut tego samego dnia.
 CO_MINUT = int(os.environ.get("CO_MINUT", "90"))
+# Osobny, częstszy przebieg wyłącznie dla progów odkupu. Nie rusza Flex,
+# odpytuje tylko notowania - dlatego może chodzić dużo gęściej niż pobranie
+# całego portfela. Bez skonfigurowanego Tradiera w ogóle nie startuje.
+ALERTY_CO_MINUT = int(os.environ.get("ALERTY_CO_MINUT", "15"))
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
@@ -85,8 +90,9 @@ def glowna(komunikat="", blad=False):
             app.logger.warning("Nie udało się pobrać wzorca: %s", e)
         try:
             z = store.zrzut()
+            kursy = notowania.pobierz(notowania.symbole_ze_zrzutu(z["dane"]))
             analiza_opcji = opcje.analiza_do_panelu(
-                z["dane"], store.transakcje(), store.zakres_rejestru())
+                z["dane"], store.transakcje(), store.zakres_rejestru(), kursy=kursy)
         except Exception as e:                                  # noqa: BLE001
             app.logger.warning("Nie udało się policzyć opcji: %s", e)
     return widok.panel(pods, hist, store.koszyki(), store.ostatnie_przebiegi(),
@@ -144,7 +150,11 @@ def pobierz():
 
 
 def opis_harmonogramu() -> str:
-    return f"pobranie co {CO_MINUT} min"
+    czesci = [f"pobranie co {CO_MINUT} min"]
+    if notowania.skonfigurowane():
+        czesci.append(f"progi odkupu co {ALERTY_CO_MINUT} min")
+    czesci.append(notowania.opis())
+    return " · ".join(czesci)
 
 
 def _harmonogram():
@@ -154,6 +164,9 @@ def _harmonogram():
     s = BackgroundScheduler(timezone=STREFA)
     s.add_job(zadanie.uruchom, "interval", minutes=CO_MINUT, id="pobranie",
               misfire_grace_time=1800, coalesce=True, max_instances=1)
+    if notowania.skonfigurowane():
+        s.add_job(zadanie.sprawdz_same_alerty, "interval", minutes=ALERTY_CO_MINUT,
+                  id="alerty", misfire_grace_time=600, coalesce=True, max_instances=1)
     s.start()
     return s
 

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 import flex
+import notowania
 import opcje
 import powiadom
 import raport_excel
@@ -38,7 +39,10 @@ def _kwartaly_do_raportu() -> list[tuple[dict, list[dict]]]:
 
 
 def _sprawdz_alerty() -> str:
-    """Progi odkupu po każdym pobraniu. Alert odpala się raz, przy przekroczeniu.
+    """Progi odkupu. Alert odpala się raz, w chwili przekroczenia.
+
+    Gdy Tradier jest podpięty, liczymy na notowaniach; bez niego na cenach
+    z wyciągu, czyli z zamknięcia poprzedniej sesji.
 
     Świadomie nie przerywa przebiegu przy błędzie: nieudana wysyłka maila nie
     może zepsuć zapisu portfela, który już się powiódł."""
@@ -46,7 +50,9 @@ def _sprawdz_alerty() -> str:
         z = store.zrzut()
         if not z:
             return "alerty pominięte (brak zrzutu)"
-        a = opcje.analiza_do_panelu(z["dane"], store.transakcje(), store.zakres_rejestru())
+        kursy = notowania.pobierz(notowania.symbole_ze_zrzutu(z["dane"]))
+        a = opcje.analiza_do_panelu(z["dane"], store.transakcje(),
+                                    store.zakres_rejestru(), kursy=kursy)
         nowe = store.przetworz_alerty(a["alerty"])
         if not nowe:
             return f"progi odkupu: {len(a['alerty'])} czynnych, nic nowego"
@@ -54,7 +60,8 @@ def _sprawdz_alerty() -> str:
         for x in nowe:
             store.oznacz_wyslane(x["symbol"], " · ".join(x["powody"]),
                                  powiadom.KANAL or "brak", ok)
-        return f"NOWY PRÓG ODKUPU: {len(nowe)} — {opis}"
+        zrodlo = "notowania" if kursy else "wyciąg"
+        return f"NOWY PRÓG ODKUPU: {len(nowe)} ({zrodlo}) — {opis}"
     except Exception as e:                                      # noqa: BLE001
         return f"alerty nie zadziałały: {type(e).__name__}: {e}"
 
@@ -93,6 +100,19 @@ def uruchom(token: str | None = None, query_id: str | None = None) -> tuple[bool
         kom = f"{type(e).__name__}: {e}"
         store.zapisz_przebieg(False, kom)
         return False, kom
+
+
+def sprawdz_same_alerty() -> tuple[bool, str]:
+    """Lekki przebieg wyłącznie dla progów odkupu, bez pobierania Flex.
+
+    Sens ma tylko z notowaniami: bez nich ceny i tak zmieniają się raz na dobę,
+    więc częstsze sprawdzanie niczego by nie wniosło."""
+    if not notowania.skonfigurowane():
+        return False, "pominięte - brak notowań na żywo"
+    kom = _sprawdz_alerty()
+    if kom.startswith("NOWY PRÓG"):
+        store.zapisz_przebieg(True, kom)
+    return True, kom
 
 
 if __name__ == "__main__":

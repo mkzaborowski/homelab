@@ -377,9 +377,14 @@ def _akcje_bazowego(pozycje: list[dict], bazowy: str) -> float:
 
 
 def analizuj_pozycje(dane: dict, dzis: date | None = None,
-                     stopa: float = STOPA_WOLNA) -> list[Pozycja]:
-    """Pełna analiza otwartych pozycji opcyjnych ze zrzutu portfela."""
+                     stopa: float = STOPA_WOLNA,
+                     kursy: dict[str, dict] | None = None) -> list[Pozycja]:
+    """Pełna analiza otwartych pozycji opcyjnych ze zrzutu portfela.
+
+    `kursy` pozwala nadpisać ceny świeższymi notowaniami (patrz notowania.py).
+    Bez nich liczymy na cenach z wyciągu, czyli z zamknięcia poprzedniej sesji."""
     dzis = dzis or date.today()
+    kursy = kursy or {}
     pozycje = dane.get("pozycje", [])
     surowe = [p for p in pozycje if (p.get("klasa") or "").upper() in ("OPT", "FOP")]
 
@@ -396,12 +401,14 @@ def analizuj_pozycje(dane: dict, dzis: date | None = None,
     wynik: list[Pozycja] = []
     for p in scalone.values():
         bazowy = p.get("bazowy") or ""
-        S = _kurs_bazowego(pozycje, bazowy)
+        S = (kursy.get(bazowy, {}).get("cena")
+             or _kurs_bazowego(pozycje, bazowy))
         K = float(p.get("strike") or 0.0)
         prawo = (p.get("prawo") or "C").upper()
         dni = dni_do_wygasniecia(p.get("wygasa") or "", dzis)
         T = dni / DNI_W_ROKU
-        cena = float(p.get("cena") or 0.0)
+        cena = float(kursy.get(p.get("symbol") or "", {}).get("cena")
+                     or p.get("cena") or 0.0)
 
         poz = Pozycja(
             symbol=p.get("symbol") or "", bazowy=bazowy, prawo=prawo, strike=K,
@@ -409,7 +416,11 @@ def analizuj_pozycje(dane: dict, dzis: date | None = None,
             kurs_bazowego=S, cena_opcji=cena,
             # koszt krótkiej opcji jest ujemny (uznanie) - premia to jego moduł
             premia=abs(float(p.get("koszt") or 0.0)),
-            wartosc_biezaca=abs(float(p.get("wartosc") or 0.0)),
+            # wartość bieżąca musi pochodzić z tego samego źródła co cena,
+            # inaczej próg odkupu mieszałby notowanie z wczorajszym wyciągiem
+            wartosc_biezaca=(cena * abs(float(p.get("ilosc") or 0.0)) * MNOZNIK
+                             if kursy.get(p.get("symbol") or "")
+                             else abs(float(p.get("wartosc") or 0.0))),
             zysk_otwarty=float(p.get("zysk") or 0.0),
             dni=dni,
         )
@@ -685,10 +696,11 @@ def _etykieta(p: Pozycja) -> str:
 
 
 def analiza_do_panelu(dane: dict, transakcje: list[dict], rejestr: tuple[str, str, int],
-                      dzis: date | None = None, stopa: float = STOPA_WOLNA) -> dict:
+                      dzis: date | None = None, stopa: float = STOPA_WOLNA,
+                      kursy: dict[str, dict] | None = None) -> dict:
     """Wszystko, czego potrzebuje zakładka opcji, w jednym słowniku."""
     dzis = dzis or date.today()
-    pozycje = analizuj_pozycje(dane, dzis=dzis, stopa=stopa)
+    pozycje = analizuj_pozycje(dane, dzis=dzis, stopa=stopa, kursy=kursy)
     od, do = zakres_miesiaca(dzis)
     call = lambda p: p.prawo.upper().startswith("C")   # noqa: E731
     progi = {p.symbol: prog_odkupu(p) for p in pozycje}
@@ -696,6 +708,7 @@ def analiza_do_panelu(dane: dict, transakcje: list[dict], rejestr: tuple[str, st
     return {
         "data": dzis.isoformat(),
         "stopa": stopa,
+        "kursy_zywe": bool(kursy),
         "miesiac": premia_okresu(transakcje, od, do),
         "podsumowanie": podsumuj(pozycje) or {
             "pozycji": 0, "kontraktow": 0, "premia": 0.0, "wartosc_biezaca": 0.0,
