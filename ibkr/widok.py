@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from html import escape as e
 
+import widok_opcje
+
 STYL = """
 *{box-sizing:border-box}
 :root{
@@ -564,7 +566,8 @@ def _tabela_wzorca(por: dict) -> str:
 
 
 def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
-          sheets_ok=False, okresy=None, harmonogram="", porownanie=None) -> str:
+          sheets_ok=False, okresy=None, harmonogram="", porownanie=None,
+          analiza_opcji=None) -> str:
     okresy = okresy or {}
     log = "".join(f'<tr><td class="num">{e(p["kiedy"])}</td>'
                   f'<td>{"OK" if p["ok"] else "<span class=\'plak zle\'>błąd</span>"}</td>'
@@ -606,6 +609,7 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
           <button data-cel="przeglad" aria-selected="true">Przegląd</button>
           <button data-cel="pozycje">Pozycje</button>
           <button data-cel="analiza">Analiza</button>
+          <button data-cel="opcje">Opcje</button>
           <button data-cel="wzorzec">Wzorzec</button>
           <button data-cel="ustawienia">Ustawienia</button></nav>"""
 
@@ -659,6 +663,8 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
                for t in p["tickery"][:20])}
     </tbody></table></div></div>
 </div>
+
+{widok_opcje.zakladka(analiza_opcji)}
 
 <div data-panel="wzorzec" class="panel-ukryty">
   {("" if porownanie else '<div class="karta"><div class="tresc uwaga">'

@@ -68,6 +68,11 @@ class Transakcja:
     strike: float = 0.0
     wygasa: str = ""
     prawo: str = ""
+    # Rejestr premii zbiera transakcje z wielu pobrań, więc potrzebuje trwałego
+    # identyfikatora. `kod` do tego nie służy: bierze najpierw `notes`, przez co
+    # część transakcji ma tam "P" (wykonanie częściowe) zamiast znacznika O/C.
+    id_transakcji: str = ""
+    otwarcie: str = ""         # wyłącznie openCloseIndicator: O / C
 
     @property
     def kupno(self) -> bool:
@@ -230,6 +235,8 @@ def parsuj(xml_tekst: str) -> Raport:
             strike=_f(t, "strike"),
             wygasa=_s(t, "expiry"),
             prawo=_s(t, "putCall"),
+            id_transakcji=_s(t, "tradeID", "transactionID", "ibOrderID"),
+            otwarcie=_s(t, "openCloseIndicator"),
         ))
 
     # Gotówka: raport potrafi zawierać jednocześnie wiersze per waluta i wiersz

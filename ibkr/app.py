@@ -7,6 +7,7 @@ from functools import wraps
 
 from flask import (Flask, redirect, request, send_file, session, url_for)
 
+import opcje
 import sheets
 import statystyki
 import wzorzec
@@ -75,17 +76,24 @@ def _dane_panelu():
 def glowna(komunikat="", blad=False):
     pods = _dane_panelu()
     hist = store.historia()
-    por = None
+    por = analiza_opcji = None
     if pods:
         try:
             por = wzorzec.porownaj(wzorzec.parsuj(wzorzec.pobierz()), pods)
         except Exception as e:                                  # noqa: BLE001
             # brak wzorca nie może wywalić całego panelu
             app.logger.warning("Nie udało się pobrać wzorca: %s", e)
+        try:
+            z = store.zrzut()
+            analiza_opcji = opcje.analiza_do_panelu(
+                z["dane"], store.transakcje(), store.zakres_rejestru())
+        except Exception as e:                                  # noqa: BLE001
+            app.logger.warning("Nie udało się policzyć opcji: %s", e)
     return widok.panel(pods, hist, store.koszyki(), store.ostatnie_przebiegi(),
                        komunikat=komunikat, blad=blad, sheets_ok=sheets.skonfigurowane(),
                        okresy=statystyki.okresy(hist, pods["nav"]) if pods else {},
-                       harmonogram=opis_harmonogramu(), porownanie=por)
+                       harmonogram=opis_harmonogramu(), porownanie=por,
+                       analiza_opcji=analiza_opcji)
 
 
 @app.post("/odswiez")

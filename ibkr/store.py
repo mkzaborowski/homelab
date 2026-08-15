@@ -55,6 +55,21 @@ def zainicjuj() -> None:
             ok INTEGER NOT NULL,
             komunikat TEXT
         );
+        -- Flex oddaje transakcje tylko z ostatniej sesji, a zrzut dzienny je
+        -- nadpisuje. Bez własnego rejestru nie da się policzyć premii za
+        -- miesiąc - dlatego każde pobranie dokłada tu nowe wiersze i nic
+        -- nie kasuje.
+        CREATE TABLE IF NOT EXISTS transakcje (
+            klucz TEXT PRIMARY KEY,         -- tradeID albo odcisk z pól transakcji
+            data TEXT NOT NULL,             -- YYYY-MM-DD
+            konto TEXT, symbol TEXT, opis TEXT, klasa TEXT, waluta TEXT,
+            bazowy TEXT, prawo TEXT, strike REAL, wygasa TEXT,
+            ilosc REAL, cena REAL, wartosc REAL, prowizja REAL,
+            zysk_zrealizowany REAL, kod TEXT, otwarcie TEXT,
+            dodano TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_transakcje_data ON transakcje(data);
+        CREATE INDEX IF NOT EXISTS idx_transakcje_klasa ON transakcje(klasa);
         """)
         # agregaty trzymamy w kolumnach, żeby wykresy nie musiały parsować
         # JSON-a każdego dnia z osobna (przy 160 pozycjach robi się to kosztowne)
@@ -103,7 +118,73 @@ def zapisz_zrzut(rap: Raport) -> str:
         for p in rap.pozycje:
             if p.symbol:
                 con.execute("INSERT OR IGNORE INTO meta_pozycji (symbol) VALUES (?)", (p.symbol,))
+        _zapisz_transakcje(con, dane.get("transakcje", []))
     return dzien
+
+
+def _klucz_transakcji(t: dict) -> str:
+    """Trwała tożsamość transakcji.
+
+    Najlepszy jest tradeID od IBKR. Gdy go brak (starsze zrzuty albo raport
+    bez tego pola), sklejamy odcisk z pól, które razem jednoznacznie opisują
+    wykonanie. Musi być powtarzalny, bo przy każdym pobraniu ta sama
+    transakcja ma trafić w ten sam wiersz zamiast się dublować."""
+    tid = (t.get("id_transakcji") or "").strip()
+    if tid:
+        return f"id:{tid}"
+    czesci = (t.get("konto"), t.get("symbol"), t.get("data"), t.get("ilosc"),
+              t.get("cena"), t.get("wartosc"), t.get("prowizja"), t.get("poziom"))
+    return "odcisk:" + "|".join(str(c) for c in czesci)
+
+
+def _zapisz_transakcje(con, transakcje: list[dict]) -> int:
+    """Dokłada nowe transakcje do rejestru. Zwraca liczbę faktycznie nowych."""
+    nowe = 0
+    teraz = datetime.now().isoformat(timespec="seconds")
+    for t in transakcje:
+        # ORDER i EXECUTION opisują to samo wykonanie na dwóch poziomach
+        # szczegółowości - bierzemy jeden poziom, żeby nie liczyć premii dwa razy
+        if (t.get("poziom") or "").upper() == "ORDER":
+            continue
+        k = con.execute(
+            "INSERT OR IGNORE INTO transakcje (klucz, data, konto, symbol, opis, klasa,"
+            " waluta, bazowy, prawo, strike, wygasa, ilosc, cena, wartosc, prowizja,"
+            " zysk_zrealizowany, kod, otwarcie, dodano)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (_klucz_transakcji(t), _normalizuj_date(t.get("data") or ""),
+             t.get("konto"), t.get("symbol"), t.get("opis"), t.get("klasa"),
+             t.get("waluta"), t.get("bazowy"), t.get("prawo"),
+             t.get("strike") or 0.0, t.get("wygasa"), t.get("ilosc") or 0.0,
+             t.get("cena") or 0.0, t.get("wartosc") or 0.0, t.get("prowizja") or 0.0,
+             t.get("zysk_zrealizowany") or 0.0, t.get("kod"), t.get("otwarcie"), teraz))
+        nowe += k.rowcount
+    return nowe
+
+
+def transakcje(klasa: str | None = None, od: str | None = None,
+               do: str | None = None) -> list[dict]:
+    """Transakcje z rejestru, rosnąco po dacie."""
+    q, par = "SELECT * FROM transakcje", []
+    war = []
+    if klasa:
+        war.append("klasa=?"); par.append(klasa)
+    if od:
+        war.append("data>=?"); par.append(od)
+    if do:
+        war.append("data<=?"); par.append(do)
+    if war:
+        q += " WHERE " + " AND ".join(war)
+    q += " ORDER BY data, symbol"
+    with polacz() as con:
+        return [dict(r) for r in con.execute(q, par)]
+
+
+def zakres_rejestru() -> tuple[str, str, int]:
+    """Od kiedy do kiedy sięga rejestr i ile ma wierszy - potrzebne, żeby
+    panel mógł uczciwie napisać, za jaki okres premia jest kompletna."""
+    with polacz() as con:
+        r = con.execute("SELECT MIN(data) a, MAX(data) b, COUNT(*) c FROM transakcje").fetchone()
+    return (r["a"] or "", r["b"] or "", r["c"] or 0)
 
 
 def _normalizuj_date(s: str) -> str:
