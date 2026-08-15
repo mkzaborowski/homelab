@@ -93,6 +93,26 @@ class Gotowka:
 
 
 @dataclass
+class DzienNAV:
+    """Jeden dzień z sekcji EquitySummaryByReportDateInBase.
+
+    To jedyne miejsce w raporcie Flex z DZIENNĄ historią wartości konta.
+    Ile dni tu przyjdzie, zależy wyłącznie od okresu ustawionego w zapytaniu
+    Flex: przy „Last Business Day" są dwa, przy „Last 365 Calendar Days"
+    około 250. Bez tej historii nie da się policzyć ani zmienności, ani
+    obsunięcia, ani zwrotu za cokolwiek dłuższego niż zebrane zrzuty."""
+    data: str = ""
+    nav: float = 0.0
+    gotowka: float = 0.0
+    akcje: float = 0.0
+    opcje: float = 0.0
+    fundusze: float = 0.0
+    obligacje: float = 0.0
+    dywidendy_naliczone: float = 0.0
+    odsetki_naliczone: float = 0.0
+
+
+@dataclass
 class Raport:
     """Znormalizowany zrzut stanu konta z jednego raportu Flex."""
     konto: str = ""
@@ -104,6 +124,7 @@ class Raport:
     transakcje: list[Transakcja] = field(default_factory=list)
     gotowka: list[Gotowka] = field(default_factory=list)
     dywidendy_naliczone: float = 0.0
+    historia_nav: list[DzienNAV] = field(default_factory=list)
 
     def jako_slownik(self) -> dict:
         d = asdict(self)
@@ -192,6 +213,24 @@ def parsuj(xml_tekst: str) -> Raport:
         poprzednie = [n for n in nav_wiersze if n is not biezacy]
         if poprzednie:
             rap.nav_poprzedni = _f(max(poprzednie, key=lambda n: _s(n, "reportDate")), "total")
+
+        # Cała zawartość tej sekcji, dzień po dniu. Przy okresie zapytania
+        # ustawionym na rok dostajemy tu gotową historię konta - jedyne
+        # darmowe źródło, z którego da się policzyć zmienność, obsunięcie
+        # i zwroty za okresy dłuższe niż zebrane przez nas zrzuty.
+        for n in nav_wiersze:
+            rap.historia_nav.append(DzienNAV(
+                data=_s(n, "reportDate"),
+                nav=_f(n, "total"),
+                gotowka=_f(n, "cash"),
+                akcje=_f(n, "stock"),
+                opcje=_f(n, "options"),
+                fundusze=_f(n, "funds"),
+                obligacje=_f(n, "bonds"),
+                dywidendy_naliczone=_f(n, "dividendAccruals"),
+                odsetki_naliczone=_f(n, "interestAccruals"),
+            ))
+        rap.historia_nav.sort(key=lambda d: d.data)
 
     for p in stmt.findall(".//OpenPosition"):
         rap.pozycje.append(Pozycja(

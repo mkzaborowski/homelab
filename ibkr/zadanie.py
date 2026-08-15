@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 
 import flex
+import klasyfikacja
+import wzorzec
 import notowania
 import opcje
 import powiadom
@@ -80,11 +82,23 @@ def uruchom(token: str | None = None, query_id: str | None = None) -> tuple[bool
         rap = flex.parsuj(xml)
         dzien = store.zapisz_zrzut(rap)
 
+        # katalog instrumentów i klasyfikacja - bez tego 100% portfela
+        # lądowało w koszyku „Nieprzypisane"
+        dane = rap.jako_slownik()
+        store.zapisz_instrumenty(dane.get("pozycje", []))
+        try:
+            przyp = wzorzec.parsuj(wzorzec.pobierz()).get("przypisanie", {})
+        except Exception:                                       # noqa: BLE001
+            przyp = {}
+        k = klasyfikacja.przypisz(dane.get("pozycje", []), przyp)
+        czesci_klas = (f"klasyfikacja: {k['z_arkusza']} z arkusza, {k['z_mapy']} z mapy, "
+                       f"{k['bez_przypisania']} bez")
+
         kwartaly = _kwartaly_do_raportu()
         if kwartaly:
             raport_excel.zbuduj(PLIK_XLSX, kwartaly)
 
-        czesci = [f"zapisano {dzien}", f"{len(rap.pozycje)} pozycji"]
+        czesci = [f"zapisano {dzien}", f"{len(rap.pozycje)} pozycji", czesci_klas]
         if sheets.skonfigurowane() and kwartaly:
             try:
                 czesci.append(sheets.wypchnij(kwartaly[-1][0]))

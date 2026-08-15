@@ -395,6 +395,23 @@ def logowanie(blad: str = "") -> str:
 </form></body></html>"""
 
 
+def _kafel_polityki(p: dict) -> tuple:
+    """Zastępuje dawne „Ryzyko stopów $0".
+
+    Zero było arytmetycznie prawdziwe (żaden stop nie był ustawiony), ale
+    czytało się jako „brak ryzyka". Pozycja długoterminowa bez stopa nie ma
+    zerowego ryzyka - ma inny sposób zarządzania. Pokazujemy więc pokrycie
+    polityką, a kwotę tylko wtedy, gdy jakikolwiek stop faktycznie istnieje."""
+    bez = p.get("pozycje_bez_stopa", 0)
+    ryzyko = p.get("ryzyko_stopow", 0.0)
+    lacznie = p.get("liczba_tickerow", 0)
+    if not ryzyko and bez:
+        return ("Polityka ryzyka", f"{lacznie - bez}/{lacznie}",
+                "mut", f'{bez} bez ustalonego poziomu')
+    return ("Ryzyko stopów", _pln(ryzyko), "down" if ryzyko else "mut",
+            f'{bez} bez poziomu · gdyby wszystkie zadziałały')
+
+
 def _kafle(p: dict, okresy: dict) -> str:
     k = [("NAV", _pln(p["nav"]), "", ""),
          ("Zmiana dzienna", _proc(p["zmiana_nav_proc"]),
@@ -406,9 +423,13 @@ def _kafle(p: dict, okresy: dict) -> str:
          ("Zyskownych / stratnych", f'{p["zyskownych"]} / {p["stratnych"]}', "", ""),
          ("Koncentracja top 5", f'{p["koncentracja_top5"]:.1f}%', "",
           f'HHI {p["hhi"]:,.0f}'),
-         ("Ryzyko stopów", _pln(p["ryzyko_stopow"]),
-          "down" if p["ryzyko_stopow"] else "mut", "gdyby wszystkie zadziałały")]
+         _kafel_polityki(p)]
     for etykieta, dane in okresy.items():
+        if not dane.get("dostepny", True):
+            # Zamiast liczby, której nie ma na czym oprzeć - jasna informacja
+            # skąd sięga historia. Pusty okres jest uczciwszy niż powtórzony.
+            k.append((etykieta, "—", "mut", f'za mało historii · dane od {dane["od"]}'))
+            continue
         k.append((etykieta, _proc(dane["proc"]), _kl(dane["proc"]),
                   f'od {dane["od"]} · {_pln(dane["kwota"])}'))
     return '<div class="kafle">' + "".join(

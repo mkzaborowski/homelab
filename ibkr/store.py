@@ -70,6 +70,44 @@ def zainicjuj() -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_transakcje_data ON transakcje(data);
         CREATE INDEX IF NOT EXISTS idx_transakcje_klasa ON transakcje(klasa);
+        -- Dzienna historia wartości konta prosto z raportu Flex. Osobno od
+        -- tabeli `zrzuty`, bo tamta ma tyle dni, ile sami zdążyliśmy pobrać
+        -- (13), a ta tyle, ile obejmuje okres zapytania Flex - przy ustawieniu
+        -- rocznym od razu około 250. To ona jest podstawą liczenia zmienności,
+        -- obsunięcia i zwrotów za dłuższe okresy.
+        -- Katalog instrumentów. Symbol nie jest stabilnym kluczem: spółki zmieniają
+        -- tickery, a ten sam ticker bywa później czymś innym. conid od IBKR jest
+        -- trwały, więc gdy raport go poda, staje się kluczem kanonicznym.
+        CREATE TABLE IF NOT EXISTS instrumenty (
+            symbol TEXT PRIMARY KEY,
+            conid TEXT, isin TEXT,
+            nazwa TEXT, klasa TEXT, waluta TEXT, gielda TEXT,
+            mnoznik REAL DEFAULT 1,
+            bazowy TEXT, strike REAL, wygasa TEXT, prawo TEXT,
+            pierwszy_raz TEXT, ostatni_raz TEXT
+        );
+        -- Klasyfikacja rozdzielona od instrumentu, bo jedna pozycja może należeć
+        -- do kilku tematów naraz z różnymi wagami. `recznie` chroni decyzje
+        -- człowieka: automat nigdy nie nadpisuje wiersza z tą flagą.
+        CREATE TABLE IF NOT EXISTS klasyfikacja (
+            symbol TEXT NOT NULL,
+            wymiar TEXT NOT NULL,        -- sektor | temat | kraj | klasa | strategia
+            wartosc TEXT NOT NULL,
+            waga REAL DEFAULT 1.0,
+            recznie INTEGER DEFAULT 0,
+            zrodlo TEXT DEFAULT '',
+            zmieniono TEXT,
+            PRIMARY KEY (symbol, wymiar, wartosc)
+        );
+        CREATE INDEX IF NOT EXISTS idx_klas_wymiar ON klasyfikacja(wymiar);
+        CREATE TABLE IF NOT EXISTS nav_dzienny (
+            data TEXT PRIMARY KEY,          -- YYYY-MM-DD
+            nav REAL NOT NULL,
+            gotowka REAL, akcje REAL, opcje REAL, fundusze REAL, obligacje REAL,
+            dywidendy_naliczone REAL, odsetki_naliczone REAL,
+            zrodlo TEXT DEFAULT 'flex',
+            dodano TEXT NOT NULL
+        );
         -- Alerty odkupu. Trzymamy stan, żeby nie powtarzać powiadomienia przy
         -- każdym pobraniu: alert odpala się raz, a odbezpiecza dopiero wtedy,
         -- gdy cena wróci powyżej progu.
@@ -139,6 +177,7 @@ def zapisz_zrzut(rap: Raport) -> str:
             if p.symbol:
                 con.execute("INSERT OR IGNORE INTO meta_pozycji (symbol) VALUES (?)", (p.symbol,))
         _zapisz_transakcje(con, dane.get("transakcje", []))
+        _zapisz_nav_dzienny(con, dane.get("historia_nav", []))
     return dzien
 
 
@@ -179,6 +218,126 @@ def _zapisz_transakcje(con, transakcje: list[dict]) -> int:
              t.get("zysk_zrealizowany") or 0.0, t.get("kod"), t.get("otwarcie"), teraz))
         nowe += k.rowcount
     return nowe
+
+
+def _zapisz_nav_dzienny(con, dni: list[dict]) -> int:
+    """Dokłada dni z raportu. Istniejące nadpisujemy - IBKR potrafi skorygować
+    wycenę wstecz, a wtedy nowsza wersja jest tą prawdziwą."""
+    teraz = datetime.now().isoformat(timespec="seconds")
+    ile = 0
+    for d in dni:
+        data = _normalizuj_date(d.get("data") or "")
+        if not data or not d.get("nav"):
+            continue
+        con.execute(
+            "INSERT INTO nav_dzienny (data, nav, gotowka, akcje, opcje, fundusze,"
+            " obligacje, dywidendy_naliczone, odsetki_naliczone, dodano)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(data) DO UPDATE SET nav=excluded.nav, gotowka=excluded.gotowka,"
+            " akcje=excluded.akcje, opcje=excluded.opcje, fundusze=excluded.fundusze,"
+            " obligacje=excluded.obligacje, dywidendy_naliczone=excluded.dywidendy_naliczone,"
+            " odsetki_naliczone=excluded.odsetki_naliczone, dodano=excluded.dodano",
+            (data, d.get("nav"), d.get("gotowka"), d.get("akcje"), d.get("opcje"),
+             d.get("fundusze"), d.get("obligacje"), d.get("dywidendy_naliczone"),
+             d.get("odsetki_naliczone"), teraz))
+        ile += 1
+    return ile
+
+
+def zapisz_instrumenty(pozycje: list[dict]) -> int:
+    """Katalog uzupełniany przy każdym pobraniu. Pola techniczne (mnożnik, strike,
+    wygaśnięcie) biorą się z raportu; klasyfikacja siedzi osobno."""
+    teraz = datetime.now().isoformat(timespec="seconds")
+    ile = 0
+    with polacz() as con:
+        for p in pozycje:
+            s = p.get("symbol")
+            if not s:
+                continue
+            klasa = (p.get("klasa") or "").upper()
+            con.execute(
+                "INSERT INTO instrumenty (symbol, conid, isin, nazwa, klasa, waluta,"
+                " mnoznik, bazowy, strike, wygasa, prawo, pierwszy_raz, ostatni_raz)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(symbol) DO UPDATE SET"
+                "  conid=COALESCE(NULLIF(excluded.conid,''), instrumenty.conid),"
+                "  isin=COALESCE(NULLIF(excluded.isin,''), instrumenty.isin),"
+                "  nazwa=COALESCE(NULLIF(excluded.nazwa,''), instrumenty.nazwa),"
+                "  klasa=excluded.klasa, waluta=excluded.waluta,"
+                "  mnoznik=excluded.mnoznik, bazowy=excluded.bazowy,"
+                "  strike=excluded.strike, wygasa=excluded.wygasa,"
+                "  prawo=excluded.prawo, ostatni_raz=excluded.ostatni_raz",
+                (s, p.get("conid") or "", p.get("isin") or "", p.get("opis") or "",
+                 klasa, p.get("waluta") or "",
+                 100.0 if klasa in ("OPT", "FOP") else 1.0,
+                 p.get("bazowy") or "", p.get("strike") or 0.0,
+                 p.get("wygasa") or "", p.get("prawo") or "", teraz, teraz))
+            ile += 1
+    return ile
+
+
+def instrumenty() -> dict[str, dict]:
+    with polacz() as con:
+        return {r["symbol"]: dict(r) for r in con.execute("SELECT * FROM instrumenty")}
+
+
+def zapisz_klasyfikacje(symbol: str, wymiar: str, wartosci, waga: float = 1.0,
+                        recznie: bool = False, zrodlo: str = "") -> bool:
+    """Ustawia CAŁY wymiar dla symbolu naraz. Zwraca False, gdy pominięto,
+    bo istnieje decyzja ręczna.
+
+    Podmiana obejmuje cały wymiar, nie pojedynczą wartość - inaczej przy
+    pozycji wielotematycznej drugi zapis kasowałby pierwszy i zostawałby
+    jeden temat zamiast dwóch.
+
+    To także cała ochrona pracy człowieka: automat nie dotknie wiersza
+    z flagą `recznie`."""
+    lista = [wartosci] if isinstance(wartosci, str) else list(wartosci)
+    if not lista:
+        return True
+    teraz = datetime.now().isoformat(timespec="seconds")
+    with polacz() as con:
+        if not recznie:
+            r = con.execute("SELECT recznie FROM klasyfikacja WHERE symbol=? AND wymiar=?",
+                            (symbol, wymiar)).fetchone()
+            if r and r["recznie"]:
+                return False
+            con.execute("DELETE FROM klasyfikacja WHERE symbol=? AND wymiar=? AND recznie=0",
+                        (symbol, wymiar))
+        for w in lista:
+            con.execute(
+                "INSERT INTO klasyfikacja (symbol, wymiar, wartosc, waga, recznie, zrodlo, zmieniono)"
+                " VALUES (?,?,?,?,?,?,?)"
+                " ON CONFLICT(symbol, wymiar, wartosc) DO UPDATE SET waga=excluded.waga,"
+                " recznie=excluded.recznie, zrodlo=excluded.zrodlo, zmieniono=excluded.zmieniono",
+                (symbol, wymiar, w, waga, 1 if recznie else 0, zrodlo, teraz))
+    return True
+
+
+def klasyfikacja(wymiar: str | None = None) -> dict[str, list[dict]]:
+    q = "SELECT * FROM klasyfikacja"
+    par = []
+    if wymiar:
+        q += " WHERE wymiar=?"; par.append(wymiar)
+    out: dict[str, list[dict]] = {}
+    with polacz() as con:
+        for r in con.execute(q, par):
+            out.setdefault(r["symbol"], []).append(dict(r))
+    return out
+
+
+def nav_dzienny(limit: int = 3000) -> list[dict]:
+    """Pełna dzienna historia konta, rosnąco po dacie."""
+    with polacz() as con:
+        w = con.execute("SELECT * FROM nav_dzienny ORDER BY data DESC LIMIT ?",
+                        (limit,)).fetchall()
+    return [dict(r) for r in reversed(w)]
+
+
+def zakres_nav() -> tuple[str, str, int]:
+    with polacz() as con:
+        r = con.execute("SELECT MIN(data) a, MAX(data) b, COUNT(*) c FROM nav_dzienny").fetchone()
+    return (r["a"] or "", r["b"] or "", r["c"] or 0)
 
 
 def transakcje(klasa: str | None = None, od: str | None = None,
@@ -248,14 +407,34 @@ def historia_nav(limit: int = 400) -> list[tuple[str, float]]:
     return [(r["data"], r["nav"] or 0.0) for r in reversed(w)]
 
 
-def historia(limit: int = 800) -> list[dict]:
-    """Szereg czasowy do wykresów - rosnąco po dacie."""
+def historia(limit: int = 3000) -> list[dict]:
+    """Szereg czasowy do wykresów i statystyk okresowych - rosnąco po dacie.
+
+    Scalamy dwa źródła. Zrzuty mają komplet (wartość, koszt, gotówka), ale tylko
+    tyle dni, ile sami zdążyliśmy pobrać. `nav_dzienny` przychodzi gotowy z Flexa
+    i sięga tak daleko, jak sięga okres zapytania - to on wyznacza kręgosłup
+    szeregu. Gdzie mamy zrzut, dokładamy z niego koszt, bo tego Flex nie podaje."""
     with polacz() as con:
-        w = con.execute("SELECT data, nav, wartosc_pozycji, koszt, gotowka FROM zrzuty "
-                        "ORDER BY data DESC LIMIT ?", (limit,)).fetchall()
-    return [{"data": r["data"], "nav": r["nav"] or 0.0,
-             "wartosc": r["wartosc_pozycji"] or 0.0, "koszt": r["koszt"] or 0.0,
-             "gotowka": r["gotowka"] or 0.0} for r in reversed(w)]
+        zrzuty = {r["data"]: dict(r) for r in con.execute(
+            "SELECT data, nav, wartosc_pozycji, koszt, gotowka FROM zrzuty")}
+        dni = [dict(r) for r in con.execute("SELECT * FROM nav_dzienny ORDER BY data")]
+
+    szereg: dict[str, dict] = {}
+    for r in dni:
+        szereg[r["data"]] = {
+            "data": r["data"], "nav": r["nav"] or 0.0,
+            "wartosc": (r["akcje"] or 0.0) + (r["opcje"] or 0.0),
+            "koszt": 0.0, "gotowka": r["gotowka"] or 0.0,
+        }
+    for data, r in zrzuty.items():
+        w = szereg.setdefault(data, {"data": data, "nav": 0.0, "wartosc": 0.0,
+                                     "koszt": 0.0, "gotowka": 0.0})
+        w["nav"] = w["nav"] or (r["nav"] or 0.0)
+        w["koszt"] = r["koszt"] or 0.0
+        w["wartosc"] = w["wartosc"] or (r["wartosc_pozycji"] or 0.0)
+        w["gotowka"] = w["gotowka"] or (r["gotowka"] or 0.0)
+
+    return [szereg[d] for d in sorted(szereg)][-limit:]
 
 
 def wszystkie_dni() -> list[str]:

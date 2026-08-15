@@ -244,23 +244,40 @@ def podsumowanie(zrzut: dict, meta: dict, poprzedni: dict | None) -> dict:
 
 
 def okresy(hist: list[dict], nav_biezacy: float) -> dict:
-    """Zmiana NAV od początku miesiąca, kwartału, roku i od pierwszego zrzutu."""
+    """Zmiana NAV za okresy kalendarzowe.
+
+    Okres liczymy TYLKO wtedy, gdy historia faktycznie sięga jego początku.
+    Wcześniej QTD, YTD i „od początku" liczyły się od tej samej, pierwszej
+    zapisanej obserwacji i pokazywały trzy razy tę samą liczbę pod trzema
+    nazwami - wyglądało to na trzy niezależne pomiary, a było jednym.
+    Gdy historii brakuje, oddajemy `dostepny=False`, a panel pisze wprost,
+    od kiedy dane w ogóle są.
+
+    Uwaga: to nadal zwykła różnica NAV. Przy pierwszej wpłacie na rachunek
+    pokaże ją jako zysk - od tego jest TWR w module `zwrot`.
+    """
     if not hist:
         return {}
     dzis = _data(hist[-1]["data"]) or date.today()
-    progi = {
-        "MTD": date(dzis.year, dzis.month, 1),
-        "QTD": date(dzis.year, 3 * ((dzis.month - 1) // 3) + 1, 1),
-        "YTD": date(dzis.year, 1, 1),
-        "Od początku": _data(hist[0]["data"]) or dzis,
-    }
+    pierwszy = _data(hist[0]["data"]) or dzis
+    progi = [
+        ("MTD", date(dzis.year, dzis.month, 1)),
+        ("QTD", date(dzis.year, 3 * ((dzis.month - 1) // 3) + 1, 1)),
+        ("YTD", date(dzis.year, 1, 1)),
+        ("1R", date(dzis.year - 1, dzis.month, min(dzis.day, 28))),
+        ("Od początku", pierwszy),
+    ]
     wynik = {}
-    for etykieta, od in progi.items():
-        # pierwszy zrzut nie starszy niż próg; gdy brak - najstarszy dostępny
+    for etykieta, od in progi:
+        if etykieta != "Od początku" and pierwszy > od:
+            wynik[etykieta] = {"dostepny": False, "od": hist[0]["data"],
+                               "proc": None, "kwota": None}
+            continue
         baza = next((h for h in hist if (_data(h["data"]) or dzis) >= od), None) or hist[0]
         start = baza["nav"] or 0.0
         if start and baza["data"] != hist[-1]["data"]:
-            wynik[etykieta] = {"proc": (nav_biezacy - start) / start * 100,
+            wynik[etykieta] = {"dostepny": True,
+                               "proc": (nav_biezacy - start) / start * 100,
                                "kwota": nav_biezacy - start, "od": baza["data"]}
     return wynik
 
