@@ -270,12 +270,12 @@ def okresy(hist: list[dict], nav_biezacy: float,
         ("MTD", date(dzis.year, dzis.month, 1)),
         ("QTD", date(dzis.year, 3 * ((dzis.month - 1) // 3) + 1, 1)),
         ("YTD", date(dzis.year, 1, 1)),
-        ("1R", date(dzis.year - 1, dzis.month, min(dzis.day, 28))),
-        ("Od początku", pierwszy),
+        ("1Y", date(dzis.year - 1, dzis.month, min(dzis.day, 28))),
+        ("Since inception", pierwszy),
     ]
     wynik = {}
     for etykieta, od in progi:
-        if etykieta != "Od początku" and pierwszy > od:
+        if etykieta != "Since inception" and pierwszy > od:
             wynik[etykieta] = {"dostepny": False, "od": hist[0]["data"],
                                "proc": None, "kwota": None}
             continue

@@ -132,22 +132,22 @@ def test_krotka_historia_nie_udaje_pelnych_okresow():
     liczoną od tej samej obserwacji, sugerując trzy niezależne pomiary."""
     h = _hist("2026-07-29", "2026-08-14", 708_000.0, 803_907.0)
     o = statystyki.okresy(h, 803_907.0)
-    for e in ("QTD", "YTD", "1R"):
+    for e in ("QTD", "YTD", "1Y"):
         assert o[e]["dostepny"] is False, e
         assert o[e]["proc"] is None
         assert o[e]["od"] == "2026-07-29"
-    assert o["Od początku"]["dostepny"] is True
+    assert o["Since inception"]["dostepny"] is True
     assert o["MTD"]["dostepny"] is True          # sierpień mieści się w historii
 
 
 def test_dluga_historia_liczy_wszystkie_okresy():
     h = _hist("2024-01-01", "2026-08-14", 500_000.0, 803_907.0)
     o = statystyki.okresy(h, 803_907.0)
-    for e in ("MTD", "QTD", "YTD", "1R", "Od początku"):
+    for e in ("MTD", "QTD", "YTD", "1Y", "Since inception"):
         assert o[e]["dostepny"] is True, e
         assert o[e]["proc"] is not None
     # okresy o różnej długości muszą dać różne wyniki
-    assert o["YTD"]["proc"] != o["Od początku"]["proc"]
+    assert o["YTD"]["proc"] != o["Since inception"]["proc"]
     assert o["MTD"]["proc"] != o["YTD"]["proc"]
 
 

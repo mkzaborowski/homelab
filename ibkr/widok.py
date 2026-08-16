@@ -149,8 +149,13 @@ def _kl(v):
 
 
 def _dzien(s: str) -> str:
-    """IBKR podaje daty jako YYYYMMDD - w tabeli chcemy YYYY-MM-DD."""
-    s = (s or "").strip()[:10]
+    """IBKR podaje daty jako YYYYMMDD - w tabeli chcemy YYYY-MM-DD.
+
+    Data otwarcia transzy bywa z przyrostkiem („20260615;1"), którym IBKR
+    rozróżnia transze otwarte tego samego dnia. Do wyświetlenia jest
+    nieprzydatny, a przez niego cała wartość przelatywała przez formatowanie
+    nietknięta i w tabeli stało surowe „20260615;1"."""
+    s = (s or "").strip().split(";")[0][:10]
     if len(s) == 8 and s.isdigit():
         return f"{s[:4]}-{s[4:6]}-{s[6:]}"
     return s

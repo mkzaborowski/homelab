@@ -106,8 +106,11 @@ def _strona() -> str:
         pods, hist, ["Emerging tech", "Gold miners"],
         [{"kiedy": "2026-08-14 20:00", "ok": True, "komunikat": "saved 2026-08-14"},
          {"kiedy": "2026-08-13 20:00", "ok": False, "komunikat": "prices failed"}],
-        okresy={"YTD": {"proc": 13.96, "od": "2026-01-01", "kwota": 98_000.0},
-                "1Y": {"dostepny": False, "od": "2026-01-01"}},
+        # Etykiety okresów BIERZEMY Z KODU, nie wpisujemy własnych: przy
+        # własnych test przeoczył kafel „Od początku", który został po polsku
+        # aż do zobaczenia go w przeglądarce.
+        okresy=statystyki.okresy(hist, pods["nav"],
+                                 zwrot.przeplywy_z_operacji([])),
         harmonogram="fetch every 90 min",
         analiza_opcji=opcje.analiza_do_panelu(
             zrzut["dane"],
@@ -210,3 +213,19 @@ def test_oba_motywy_maja_komplet_zmiennych():
     w_ciemnym = nazwy(ciemny)
     brakuje = w_jasnym - w_ciemnym - {"--e", "--dotyk"}   # te dwa są wspólne
     assert not brakuje, f"w ciemnym motywie brakuje: {sorted(brakuje)}"
+
+
+def test_data_transzy_traci_przyrostek_ibkr():
+    """IBKR dokleja do daty otwarcia numer transzy („20260615;1"), przez co
+    cała wartość nie przechodziła przez formatowanie i w tabeli stało surowe
+    „20260615;1" zamiast daty."""
+    assert widok._dzien("20260615;1") == "2026-06-15"
+    assert widok._dzien("20260615") == "2026-06-15"
+    assert widok._dzien("2026-06-15") == "2026-06-15"
+    assert widok._dzien("") == ""
+
+
+def test_transze_pokazuja_sformatowana_date():
+    html = _strona()
+    assert "Buy 1 · 2026-06-10" in html
+    assert ";" not in re.search(r'<tr class="lot".*?</tr>', html, re.S).group(0)
