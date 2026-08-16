@@ -11,6 +11,7 @@ import notowania
 import opcje
 import powiadom
 import raport_excel
+import rynek
 import sheets
 import statystyki
 import store
@@ -38,6 +39,27 @@ def _kwartaly_do_raportu() -> list[tuple[dict, list[dict]]]:
                       if statystyki.kwartal(t.get("data", "")) == kw]
         wynik.append((pods, transakcje))
     return wynik
+
+
+def _odswiez_ceny(pozycje: list[dict]) -> str:
+    """Historia kursów spółek i wzorców.
+
+    Bez niej nie ma bety, korelacji, wkładu do ryzyka ani ekspozycji
+    czynnikowych. Niepowodzenie pojedynczego symbolu nie przerywa całości:
+    spółka świeżo notowana albo wycofana z obrotu po prostu nie ma historii."""
+    try:
+        symbole = sorted({p.get("symbol") for p in pozycje
+                          if (p.get("klasa") or "").upper() == "STK" and p.get("symbol")})
+        symbole += [w for w in rynek.WZORCE if w not in symbole]
+        serie, bledy = rynek.pobierz_wiele(symbole)
+        d = rynek.dostawca()
+        store.zapisz_ceny(serie, zrodlo=d.nazwa)
+        opis = f"kursy: {len(serie)}/{len(symbole)} symboli"
+        if bledy:
+            opis += f" (bez historii: {', '.join(bledy[:6])})"
+        return opis
+    except Exception as e:                                      # noqa: BLE001
+        return f"kursy nie zadziałały: {type(e).__name__}: {e}"
 
 
 def _sprawdz_alerty() -> str:
@@ -108,6 +130,7 @@ def uruchom(token: str | None = None, query_id: str | None = None) -> tuple[bool
             except Exception as e:                          # noqa: BLE001
                 czesci.append(f"Sheets nie zadziałało: {e}")
 
+        czesci.append(_odswiez_ceny(dane.get("pozycje", [])))
         czesci.append(_sprawdz_alerty())
 
         kom = " · ".join(czesci)

@@ -233,3 +233,31 @@ def test_calmar():
     assert ryzyko.calmar(0.20, None) is None
     assert ryzyko.calmar(None, -0.10) is None
     assert ryzyko.calmar(0.20, 0.0) is None
+
+
+def test_krotka_historia_jednej_spolki_nie_psuje_calosci():
+    """Realny przypadek z portfela: 52 spółki mają rok danych, jedna świeżo
+    notowana ma 26 dni. Przy oknie liczonym z minimum wszystko liczyło się
+    na 25 obserwacjach i wynik był statystycznie pusty, choć wyglądał dobrze.
+    Świeża pozycja ma zostać wykluczona, a reszta policzona na pełnym oknie."""
+    import random
+    random.seed(5)
+    zwroty = {f"STARA{i}": [random.gauss(0, 0.02) for _ in range(250)] for i in range(6)}
+    zwroty["SWIEZA"] = [random.gauss(0, 0.03) for _ in range(26)]
+    wagi = {s: 1.0 for s in zwroty}
+    w = ryzyko.wklad_do_ryzyka(wagi, zwroty)
+    assert w is not None
+    assert w["obserwacji"] >= 200, w["obserwacji"]      # nie 25
+    assert "SWIEZA" in w["pominiete"]
+    assert w["instrumentow"] == 6
+    assert 0.8 < w["udzial_objety"] <= 1.0
+
+
+def test_wszystkie_o_podobnej_dlugosci_nikogo_nie_wykluczaja():
+    import random
+    random.seed(6)
+    zwroty = {f"S{i}": [random.gauss(0, 0.02) for _ in range(200 + i)] for i in range(5)}
+    w = ryzyko.wklad_do_ryzyka({s: 1.0 for s in zwroty}, zwroty)
+    assert w["pominiete"] == []
+    assert w["instrumentow"] == 5
+    assert abs(w["udzial_objety"] - 1.0) < 1e-9

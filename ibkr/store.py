@@ -114,6 +114,17 @@ def zainicjuj() -> None:
             dodano TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_zdarzenia_data ON zdarzenia_opcji(data);
+        -- Historia kursów instrumentów i wzorców. Ceny SKORYGOWANE o splity
+        -- i dywidendy - bez tego podział akcji wygląda jak spadek o połowę
+        -- i zatruwa zmienność, betę oraz wszystkie korelacje.
+        CREATE TABLE IF NOT EXISTS ceny_dzienne (
+            symbol TEXT NOT NULL,
+            data TEXT NOT NULL,
+            cena REAL NOT NULL,
+            zrodlo TEXT DEFAULT '',
+            PRIMARY KEY (symbol, data)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ceny_data ON ceny_dzienne(data);
         CREATE TABLE IF NOT EXISTS uzgodnienie (
             klucz TEXT PRIMARY KEY, wartosc REAL, kiedy TEXT
         );
@@ -398,6 +409,46 @@ def zdarzenia_opcji() -> list[dict]:
     with polacz() as con:
         return [dict(r) for r in con.execute(
             "SELECT * FROM zdarzenia_opcji ORDER BY data")]
+
+
+def zapisz_ceny(serie: dict[str, list], zrodlo: str = "") -> int:
+    """Dokłada notowania. Istniejące dni nadpisujemy, bo dostawca potrafi
+    skorygować kurs wstecz po splicie albo dywidendzie."""
+    ile = 0
+    with polacz() as con:
+        for symbol, szereg in serie.items():
+            for data, cena in szereg:
+                con.execute(
+                    "INSERT INTO ceny_dzienne (symbol, data, cena, zrodlo)"
+                    " VALUES (?,?,?,?) ON CONFLICT(symbol, data) DO UPDATE SET"
+                    " cena=excluded.cena, zrodlo=excluded.zrodlo",
+                    (symbol, data, float(cena), zrodlo))
+                ile += 1
+    return ile
+
+
+def ceny(symbole: list[str] | None = None, od: str | None = None) -> dict[str, list]:
+    q = "SELECT symbol, data, cena FROM ceny_dzienne"
+    war, par = [], []
+    if symbole:
+        war.append(f"symbol IN ({','.join('?' * len(symbole))})"); par += symbole
+    if od:
+        war.append("data >= ?"); par.append(od)
+    if war:
+        q += " WHERE " + " AND ".join(war)
+    q += " ORDER BY symbol, data"
+    out: dict[str, list] = {}
+    with polacz() as con:
+        for r in con.execute(q, par):
+            out.setdefault(r["symbol"], []).append((r["data"], r["cena"]))
+    return out
+
+
+def zakres_cen() -> tuple[str, str, int, int]:
+    with polacz() as con:
+        r = con.execute("SELECT MIN(data) a, MAX(data) b, COUNT(*) c,"
+                        " COUNT(DISTINCT symbol) s FROM ceny_dzienne").fetchone()
+    return (r["a"] or "", r["b"] or "", r["c"] or 0, r["s"] or 0)
 
 
 def zapisz_uzgodnienie(klucz: str, wartosc) -> None:

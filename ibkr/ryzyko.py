@@ -198,12 +198,23 @@ def wklad_do_ryzyka(wagi: dict[str, float],
     Wkład krańcowy to pochodna zmienności portfela po wadze pozycji;
     wkład składowy to waga razy wkład krańcowy i sumuje się do całości.
     """
-    symbole = [s for s in wagi if s in zwroty and len(zwroty[s]) >= MIN_ZMIENNOSC]
+    # Okno liczymy z MEDIANY długości szeregów, nie z minimum. Przy minimum
+    # jedna świeżo notowana spółka obcinała wspólne okno wszystkim pozostałym:
+    # 52 pozycje z rocznymi danymi liczyły się na 25 obserwacjach, bo jedna
+    # miała 26 dni. Wynik wyglądał poprawnie i był statystycznie pusty.
+    # Zamiast tego wykluczamy pozycje bez historii i mówimy o tym wprost.
+    kandydaci = [s for s in wagi if s in zwroty and len(zwroty[s]) >= MIN_ZMIENNOSC]
+    if len(kandydaci) < 2:
+        return None
+    dlugosci = sorted(len(zwroty[s]) for s in kandydaci)
+    mediana = dlugosci[len(dlugosci) // 2]
+    okno = max(MIN_ZMIENNOSC, int(mediana * 0.8))
+
+    symbole = [s for s in kandydaci if len(zwroty[s]) >= okno]
+    pominiete = [s for s in wagi if s not in symbole]
     if len(symbole) < 2:
         return None
     n = min(len(zwroty[s]) for s in symbole)
-    if n < MIN_ZMIENNOSC:
-        return None
     serie = {s: zwroty[s][-n:] for s in symbole}
     w = {s: wagi[s] for s in symbole}
     suma_wag = sum(abs(v) for v in w.values())
@@ -239,6 +250,11 @@ def wklad_do_ryzyka(wagi: dict[str, float],
         "pozycje": pozycje,
         "obserwacji": n,
         "instrumentow": len(symbole),
+        # jawnie, bo wykluczona pozycja nadal zajmuje kapitał - tylko nie
+        # da się rzetelnie powiedzieć, ile wnosi ryzyka
+        "pominiete": sorted(pominiete),
+        "udzial_objety": sum(abs(wagi[s]) for s in symbole)
+                         / (sum(abs(v) for v in wagi.values()) or 1.0),
     }
 
 
