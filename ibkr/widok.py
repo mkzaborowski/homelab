@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 from html import escape as e
 
+import style
 import widok_analityka
 import widok_opcje
 
-STYL = """
+STYL_DODATKOWY = """
 *{box-sizing:border-box}
 :root{
   --tlo:#f4f6f9; --plyta:#fff; --linia:#dfe4ec; --linia2:#eef1f6;
@@ -383,7 +384,7 @@ SKRYPT = r"""
 def logowanie(blad: str = "") -> str:
     return f"""<!doctype html><html lang="pl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>Portfel — logowanie</title><style>{STYL}</style></head>
+<title>Portfel — logowanie</title><style>{style.STYL}\n{STYL_DODATKOWY}</style></head>
 <body style="display:flex;align-items:center;justify-content:center;min-height:100vh">
 <form method="post" action="/login" class="karta" style="max-width:340px;width:100%;margin:0">
   <h2>Panel portfela</h2>
@@ -602,7 +603,7 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
           <form method="post" action="/odswiez"><button class="btn">Pobierz teraz</button></form>
         </div></div>
         <div class="karta"><h2>Ostatnie pobrania</h2><table><tbody>{log}</tbody></table></div></div>"""
-        zakladki = ""
+        zakladki = ""   # nawigacja jest teraz w pasku bocznym
     else:
         p = pods
         ostrz = []
@@ -627,17 +628,7 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
         rozklad = [(r["etykieta"], float(r["ile"]),
                     "var(--wzrost)" if r["dodatni"] else "var(--spadek)") for r in p["rozklad"]]
 
-        zakladki = """<nav class="zakladki">
-          <button data-cel="przeglad" aria-selected="true">Przegląd</button>
-          <button data-cel="pozycje">Pozycje</button>
-          <button data-cel="analiza">Analiza</button>
-          <button data-cel="wynik">Wynik</button>
-          <button data-cel="ryzyko">Ryzyko</button>
-          <button data-cel="ekspozycja">Ekspozycja</button>
-          <button data-cel="scenariusze">Scenariusze</button>
-          <button data-cel="opcje">Opcje</button>
-          <button data-cel="wzorzec">Wzorzec</button>
-          <button data-cel="ustawienia">Ustawienia</button></nav>"""
+        zakladki = ""
 
         tresc = f"""
 <div data-panel="przeglad">
@@ -769,22 +760,44 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
     <table><tbody>{log or '<tr><td class="uwaga">Brak wpisów.</td></tr>'}</tbody></table></div>
 </div>"""
 
+    pozycje_nav = [
+        ("przeglad", "Przegląd"), ("wynik", "Wynik"), ("ryzyko", "Ryzyko"),
+        ("ekspozycja", "Ekspozycja"), ("scenariusze", "Scenariusze"),
+        ("opcje", "Opcje"), ("pozycje", "Pozycje"), ("wzorzec", "Wzorzec"),
+        ("ustawienia", "Ustawienia"),
+    ]
+    nav = "".join(
+        f'<button data-cel="{k}" aria-selected="{"true" if i == 0 else "false"}">'
+        f'{style.ikona(k)}<span>{e(n)}</span></button>'
+        for i, (k, n) in enumerate(pozycje_nav))
+
+    nav_szkielet = f"""<aside class="bok">
+  <div class="marka"><i>P</i><div><b>Portfel</b>
+    <small>{e(pods["konto"]) if pods else "—"}</small></div></div>
+  <nav class="nawig zakladki">{nav}</nav>
+  <div style="margin-top:22px;display:flex;flex-direction:column;gap:8px;padding:0 4px">
+    <form method="post" action="/odswiez"><button class="btn" style="width:100%;justify-content:center">Pobierz teraz</button></form>
+    <a class="btn szary" href="/pobierz.xlsx" style="justify-content:center">Excel</a>
+    <a class="mini" href="/wyloguj" style="text-align:center;padding:6px">Wyloguj</a>
+  </div>
+</aside>"""
+
+    naglowek = f"""<div class="gora-str">
+  <div><h1>{e(pods["kwartal"]) if pods else "Portfel"}</h1>
+    <div class="pod">stan na {e(pods["data"]) if pods else "—"} · {e(harmonogram)}</div></div>
+</div>"""
+
     return f"""<!doctype html><html lang="pl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>Portfel IBKR</title><style>{STYL}</style></head><body>
-<header class="top">
-  <span class="marka">Portfel</span>
-  <span class="konto">{e(pods["konto"]) if pods else "—"}</span>
-  <span class="prawo">
-    <form method="post" action="/odswiez" style="display:inline"><button class="btn">Pobierz teraz</button></form>
-    <a class="btn drugi" href="/pobierz.xlsx">Excel</a>
-    <a href="/wyloguj">Wyloguj</a>
-  </span>
-</header>
-{zakladki}
-<div class="wrap">
+<meta name="color-scheme" content="dark">
+<title>Portfel IBKR</title><style>{style.STYL}\n{STYL_DODATKOWY}</style></head><body>
+<div class="szkielet">
+{nav_szkielet}
+<main class="tresc-gl">
+  {naglowek}
   {f'<div class="kom {"zle" if blad else ""}">{e(komunikat)}</div>' if komunikat else ''}
   {tresc}
+</main>
 </div>
 {SKRYPT}
 </body></html>"""

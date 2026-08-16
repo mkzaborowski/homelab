@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from html import escape as e
 
+import wykresy
+
 MIESIACE = ("sty", "lut", "mar", "kwi", "maj", "cze",
             "lip", "sie", "wrz", "paź", "lis", "gru")
 
@@ -63,7 +65,7 @@ def wykres_obsuniecia(szereg: list[dict], wys: int = 150) -> str:
     return f'''<svg viewBox="0 0 {szer} {wys}" preserveAspectRatio="none"
      style="width:100%;height:{wys}px;display:block" role="img"
      aria-label="Obsunięcie od szczytu, najgłębsze {naj * 100:.1f} procent">
-  <polygon points="0,0 {pkt} {szer},0" fill="rgba(248,81,73,.18)"/>
+  <polygon points="0,0 {pkt} {szer},0" fill="rgba(248,81,73,.16)"/>
   <polyline points="{pkt}" fill="none" stroke="#f85149" stroke-width="1.6"/>
 </svg>
 <div class="mini" style="display:flex;justify-content:space-between;margin-top:6px">
@@ -196,16 +198,19 @@ def zakladka_ekspozycja(a: dict | None) -> str:
   <div class="karta"><h2>Wrażliwość na czynniki rynkowe<span class="obok">regresja
       zwrotów dziennych</span></h2>{tabela_czynnikow(a.get("czynniki"))}</div>
   <div class="siatka dwie">
-    <div class="karta"><h2>Tematy</h2><div class="tresc">
-      {pasek_udzialow(ek.get("temat") or [])}</div></div>
-    <div class="karta"><h2>Sektory</h2><div class="tresc">
-      {pasek_udzialow(ek.get("sektor") or [])}</div></div>
+    <div class="karta" style="--op:80ms"><h2>Tematy<span class="obok">udział w wartości</span></h2>
+      <div class="tresc">{wykresy.pierscien(
+        [(x["nazwa"], x["wartosc"]) for x in (ek.get("temat") or [])],
+        srodek_gora=f'{len(ek.get("temat") or [])}', srodek_dol="tematów")}</div></div>
+    <div class="karta" style="--op:140ms"><h2>Sektory</h2><div class="tresc">
+      {wykresy.slupki_poziome(ek.get("sektor") or [])}</div></div>
   </div>
   <div class="siatka dwie">
-    <div class="karta"><h2>Kraje</h2><div class="tresc">
-      {pasek_udzialow(ek.get("kraj") or [], 6)}</div></div>
-    <div class="karta"><h2>Klasy aktywów</h2><div class="tresc">
-      {pasek_udzialow(ek.get("klasa") or [], 6)}</div></div>
+    <div class="karta" style="--op:200ms"><h2>Kraje</h2><div class="tresc">
+      {wykresy.slupki_poziome(ek.get("kraj") or [], ile=6)}</div></div>
+    <div class="karta" style="--op:260ms"><h2>Klasy aktywów</h2><div class="tresc">
+      {wykresy.pierscien([(x["nazwa"], abs(x["wartosc"])) for x in (ek.get("klasa") or [])],
+        rozmiar=150)}</div></div>
   </div>
 </div>'''
 
@@ -310,10 +315,15 @@ def zakladka_wynik(a: dict | None) -> str:
     <div class="kafle">{kafle}</div>
     {naiwny}{wiersz_uzg}
   </div>
-  <div class="karta"><h2>Obsunięcie od szczytu<span class="obok">odległość od
-      najwyższej dotąd wartości konta</span></h2>
+  <div class="karta" style="--op:60ms"><h2>Wartość konta<span class="obok">{len(a["szereg"])} dni</span></h2>
+    <div class="tresc">{wykresy.obszar([(w["data"], w["nav"]) for w in a["szereg"]],
+        opis="Wartość konta")}</div></div>
+  <div class="karta" style="--op:120ms"><h2>Obsunięcie od szczytu<span class="obok">odległość od
+      najwyższej dotąd wartości</span></h2>
     <div class="tresc">{wykres_obsuniecia(a["szereg"])}</div></div>
-  <div class="karta"><h2>Zwroty miesiąc po miesiącu</h2>
+  <div class="karta" style="--op:180ms"><h2>Zwroty miesiąc po miesiącu</h2>
+    <div class="tresc">{wykresy.slupki_pionowe(
+        [(m["miesiac"], m["zwrot"] * 100) for m in (a.get("miesiace") or [])])}</div>
     {siatka_miesiecy(a.get("miesiace") or [])}</div>
 </div>'''
 
