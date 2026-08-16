@@ -12,6 +12,7 @@ from html import escape as e
 
 import style
 import widok_analityka
+import wykresy
 import widok_opcje
 
 STYL_DODATKOWY = """
@@ -635,14 +636,18 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
   {pasek}
   <div class="karta"><h2>Podsumowanie<span class="obok">{e(p["kwartal"])} · stan na
       <b>{e(p["data"])}</b></span></h2>{_kafle(p, okresy)}</div>
-  <div class="karta"><h2>NAV w czasie</h2>{_wykres_nav(hist)}</div>
+  <div class="karta" style="--op:60ms"><h2>Wartość konta w czasie<span class="obok">{len(hist)} dni ·
+      od {e(hist[0]["data"]) if hist else "—"}</span></h2>
+    <div class="tresc">{wykresy.obszar([(h["data"], h["nav"]) for h in hist],
+        wys=250, opis="Wartość konta")}</div></div>
   <div class="siatka dwie">
     <div class="karta"><h2>Struktura portfela</h2>
-      <div class="tresc">{_pierscien(udzialy)}</div></div>
+      <div class="tresc">{wykresy.pierscien(udzialy,
+        srodek_gora=_pln(p["nav"]), srodek_dol="NAV")}</div></div>
     <div class="karta"><h2>Największe i najsłabsze pozycje<span class="obok">wynik otwarty</span></h2>
-      <div class="tresc">{_wykres_slupkowy([
-          (t["symbol"], t["zysk"], "var(--wzrost)" if t["zysk"] >= 0 else "var(--spadek)")
-          for t in skrajne])}</div></div>
+      <div class="tresc">{wykresy.slupki_pionowe(
+          [(t["symbol"], t["zysk"]) for t in skrajne], wys=170,
+          fmt=lambda v: _pln(v))}</div></div>
   </div>
 </div>
 
@@ -657,8 +662,7 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
   <div class="siatka dwie">
     <div class="karta"><h2>Rozkład wyników<span class="obok">liczba spółek</span></h2>
       <div class="tresc">{_wykres_slupkowy(rozklad)}</div></div>
-    <div class="karta"><h2>Udział koszyków</h2><div class="tresc">{_wykres_poziomy(
-        [(k["koszyk"], k["udzial"], k["udzial"]) for k in p["koszyki"]])}</div></div>
+    <div class="karta"><h2>Udział koszyków</h2><div class="tresc">{wykresy.slupki_poziome([{"nazwa": k["koszyk"], "udzial": k["udzial"]} for k in p["koszyki"]], ile=8)}</div></div>
   </div>
   <div class="siatka dwie">
     <div class="karta"><h2>Kapitał wg długości trzymania</h2><div class="tresc">{_wykres_poziomy(
