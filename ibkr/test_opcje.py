@@ -383,7 +383,7 @@ def test_scenariusz_bez_kursu_bazowego_jest_pusty():
     ]}
     p = opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))[0]
     assert opcje.scenariusze(p) == []
-    assert any("Brak kursu bazowego" in u for u in p.uwagi)
+    assert any("No underlying price" in u for u in p.uwagi)
 
 
 def test_prog_odkupu_zaostrza_sie_blisko_wygasniecia():
@@ -453,7 +453,7 @@ def test_alert_wlacza_sie_gdy_cena_spadnie():
     p = opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))[0]
     o = opcje.prog_odkupu(p)
     assert o["osiagniety"]
-    assert any("progu" in x for x in o["powody"])
+    assert any("threshold" in x for x in o["powody"])
     # zysk z odkupu to premia minus koszt zamknięcia
     assert abs((p.premia - p.wartosc_biezaca) - 453.239302) < 1e-6
 
@@ -502,7 +502,7 @@ def test_zestawienie_miesieczne_grupuje_i_liczy():
     m = opcje.miesiace(tr)
     assert [x["miesiac"] for x in m] == ["2026-08", "2026-07"]   # od najnowszego
     sierpien, lipiec = m
-    assert sierpien["nazwa"] == "sierpień 2026"
+    assert sierpien["nazwa"] == "August 2026"
     assert abs(sierpien["brutto"] - 1008.0) < 1e-9
     assert abs(sierpien["netto"] - (1008.0 - 18.22)) < 1e-9
     assert {s["bazowy"] for s in sierpien["spolki"]} == {"LUNR", "MBLY"}
@@ -512,9 +512,9 @@ def test_zestawienie_miesieczne_grupuje_i_liczy():
     assert abs(lipiec["odkup"] - 80.0) < 1e-9
 
 
-def test_nazwa_miesiaca_po_polsku():
-    assert opcje.nazwa_miesiaca("2026-08") == "sierpień 2026"
-    assert opcje.nazwa_miesiaca("2026-01") == "styczeń 2026"
+def test_nazwa_miesiaca_po_angielsku():
+    assert opcje.nazwa_miesiaca("2026-08") == "August 2026"
+    assert opcje.nazwa_miesiaca("2026-01") == "January 2026"
     assert opcje.nazwa_miesiaca("bzdura") == "bzdura"
 
 
@@ -620,13 +620,13 @@ def test_brak_tokenu_nie_wywraca_pobierania():
 # --------------------------------------------------------------------------- #
 
 def test_kubelki_dte_maja_rozlaczne_granice():
-    assert opcje.kubelek_dte(0) == "0–7 dni"
-    assert opcje.kubelek_dte(7) == "0–7 dni"
-    assert opcje.kubelek_dte(8) == "8–14 dni"
-    assert opcje.kubelek_dte(30) == "15–30 dni"
-    assert opcje.kubelek_dte(31) == "31–60 dni"
-    assert opcje.kubelek_dte(90) == "61–90 dni"
-    assert opcje.kubelek_dte(400) == "ponad 90 dni"
+    assert opcje.kubelek_dte(0) == "0–7 days"
+    assert opcje.kubelek_dte(7) == "0–7 days"
+    assert opcje.kubelek_dte(8) == "8–14 days"
+    assert opcje.kubelek_dte(30) == "15–30 days"
+    assert opcje.kubelek_dte(31) == "31–60 days"
+    assert opcje.kubelek_dte(90) == "61–90 days"
+    assert opcje.kubelek_dte(400) == "over 90 days"
 
 
 def test_kubelki_sumuja_caly_portfel():
@@ -643,7 +643,7 @@ def test_kubelki_sumuja_caly_portfel():
     ]}
     poz = opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))
     k = opcje.kubelki_wygasniec(poz)
-    assert {x["kubelek"] for x in k} == {"0–7 dni", "31–60 dni"}
+    assert {x["kubelek"] for x in k} == {"0–7 days", "31–60 days"}
     assert sum(x["kontraktow"] for x in k) == sum(p.kontraktow for p in poz)
     assert abs(sum(x["premia"] for x in k) - sum(p.premia for p in poz)) < 1e-9
 
@@ -657,11 +657,11 @@ def test_moneyness_opisuje_polozenie():
              "prawo": "C", "strike": strike, "wygasa": "20260918", "ilosc": -1.0,
              "cena": 0.5, "wartosc": -50.0, "koszt": -55.0, "zysk": 5.0}]}
         return opcje.analizuj_pozycje(dane, dzis=date(2026, 8, 14))[0]
-    assert opcje.moneyness(_poz(12.0, 10.0))["etykieta"] == "głęboko w pieniądzu"
-    assert opcje.moneyness(_poz(10.2, 10.0))["etykieta"] == "w pieniądzu"
-    assert opcje.moneyness(_poz(9.8, 10.0))["etykieta"] == "tuż przy pieniądzu"
-    assert opcje.moneyness(_poz(9.2, 10.0))["etykieta"] == "blisko pieniądza"
-    assert opcje.moneyness(_poz(7.0, 10.0))["etykieta"] == "daleko poza pieniądzem"
+    assert opcje.moneyness(_poz(12.0, 10.0))["etykieta"] == "deep in the money"
+    assert opcje.moneyness(_poz(10.2, 10.0))["etykieta"] == "in the money"
+    assert opcje.moneyness(_poz(9.8, 10.0))["etykieta"] == "just at the money"
+    assert opcje.moneyness(_poz(9.2, 10.0))["etykieta"] == "near the money"
+    assert opcje.moneyness(_poz(7.0, 10.0))["etykieta"] == "far out of the money"
 
 
 def test_cykl_zycia_liczy_wynik_z_nogi_akcyjnej():

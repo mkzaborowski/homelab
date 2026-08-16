@@ -36,24 +36,24 @@ WSTRZASY = {
 
 # Scenariusze łączone - nazwane sytuacje rynkowe, nie pojedyncze ruchy.
 POLACZONE = {
-    "Ucieczka od ryzyka": {
-        "opis": "gwałtowna wyprzedaż akcji, kapitał ucieka w złoto i dolara",
+    "Risk-off": {
+        "opis": "sharp equity sell-off, capital flees into gold and the dollar",
         "wstrzasy": {"SPY": -0.15, "QQQ": -0.22, "GLD": 0.08, "UUP": 0.07, "XLE": -0.20},
     },
-    "Wstrząs inflacyjny": {
-        "opis": "stopy w górę, wyceny wzrostowe pod presją, surowce mocne",
+    "Inflation shock": {
+        "opis": "rates up, growth valuations under pressure, commodities strong",
         "wstrzasy": {"TLT": -0.12, "QQQ": -0.18, "GLD": 0.12, "XLE": 0.15},
     },
-    "Pęknięcie bańki technologicznej": {
-        "opis": "przecena spółek wzrostowych bez paniki na szerokim rynku",
+    "Tech bubble bursts": {
+        "opis": "growth names repriced without panic in the broad market",
         "wstrzasy": {"QQQ": -0.30, "SPY": -0.12, "IWM": -0.18},
     },
-    "Załamanie metali": {
-        "opis": "silny dolar zbija złoto i srebro, kopalnie mocniej niż kruszec",
+    "Metals rout": {
+        "opis": "strong dollar knocks gold and silver, miners harder than bullion",
         "wstrzasy": {"GLD": -0.15, "SLV": -0.25, "UUP": 0.08},
     },
-    "Odbicie ryzyka": {
-        "opis": "powrót apetytu na ryzyko, małe spółki i technologia w górę",
+    "Risk-on rebound": {
+        "opis": "risk appetite returns, small caps and technology up",
         "wstrzasy": {"SPY": 0.10, "QQQ": 0.15, "IWM": 0.14, "UUP": -0.05},
     },
 }
@@ -173,7 +173,7 @@ def podsumowanie(nav: float, czynniki: list[dict],
                  pozycje_opcji: list[dict] | None = None) -> dict:
     if not czynniki:
         return {"dostepne": False,
-                "powod": "brak wyliczonych bet czynnikowych - potrzebna historia kursów"}
+                "powod": "no factor betas computed - price history is required"}
     poj = pojedyncze(nav, czynniki, pozycje_opcji)
     pol = polaczone(nav, czynniki, pozycje_opcji)
     return {

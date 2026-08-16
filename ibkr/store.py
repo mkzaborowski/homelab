@@ -44,7 +44,7 @@ def zainicjuj() -> None:
         );
         CREATE TABLE IF NOT EXISTS meta_pozycji (   -- dane wprowadzane ręcznie
             symbol TEXT PRIMARY KEY,
-            koszyk TEXT DEFAULT 'Nieprzypisane',
+            koszyk TEXT DEFAULT 'Unassigned',
             ocena TEXT DEFAULT '',
             stop REAL,                      -- poziom stop-loss (zlecenie GTC w IBKR)
             notatka TEXT DEFAULT ''
@@ -172,6 +172,48 @@ def zainicjuj() -> None:
                 con.execute(f"ALTER TABLE zrzuty ADD COLUMN {nazwa} REAL")
         if kolumny and "wartosc_pozycji" not in kolumny:
             _uzupelnij_agregaty(con)
+        _przetlumacz_etykiety(con)
+
+
+# Nazwy koszyków, tematów i sektorów siedzą w bazie jako tekst, więc przejście
+# panelu na angielski nie mogło być samą podmianą w kodzie - istniejące wiersze
+# zostałyby po polsku i ten sam portfel miałby obok siebie koszyk „Gold"
+# i „Złoto". Migracja zmienia ETYKIETĘ, nie przypisanie, więc ręczne decyzje
+# użytkownika (flaga `recznie`) zostają nietknięte.
+ETYKIETY_PL_EN = {
+    "Nieprzypisane": "Unassigned",
+    "AI / półprzewodniki": "AI / semiconductors",
+    "Oprogramowanie": "Software", "Kosmos": "Space",
+    "Technologie wschodzące": "Emerging tech", "Robotyka": "Robotics",
+    "Energia jądrowa": "Nuclear energy",
+    "Kopalnie złota": "Gold miners", "Kopalnie srebra": "Silver miners",
+    "Złoto": "Gold", "Srebro": "Silver", "Energia": "Energy",
+    "Surowce": "Commodities", "Szeroki rynek": "Broad market",
+    "Dywidenda": "Dividend", "Zabezpieczenie": "Hedge",
+    "Kryptowaluty": "Crypto", "Defensywne": "Defensive", "Obronność": "Defence",
+    "Technologia": "Technology", "Konsument cykliczny": "Consumer cyclical",
+    "Przemysł": "Industrials", "Energetyka": "Energy",
+    "Telekomunikacja": "Telecom", "Akcje": "Equity", "Gotówka": "Cash",
+    "Aktywa cyfrowe": "Digital assets", "Opcje": "Options",
+    "Kanada": "Canada", "Chiny": "China", "Tajwan": "Taiwan",
+    "Holandia": "Netherlands", "Argentyna": "Argentina", "Brazylia": "Brazil",
+    "Izrael": "Israel", "Wielka Brytania": "United Kingdom",
+}
+
+
+def _przetlumacz_etykiety(con) -> None:
+    """Jednorazowo przemianowuje polskie etykiety na angielskie.
+
+    Idempotentna: po przejściu nie ma już czego dopasować, więc kolejne starty
+    nic nie robią. Uruchamiana przy każdym starcie zamiast pod numerem wersji
+    schematu, bo kosztuje kilkadziesiąt UPDATE-ów bez trafienia i jest odporna
+    na bazę wgraną z kopii sprzed zmiany."""
+    for pl, en in ETYKIETY_PL_EN.items():
+        con.execute("UPDATE meta_pozycji SET koszyk=? WHERE koszyk=?", (en, pl))
+        con.execute("UPDATE klasyfikacja SET wartosc=? WHERE wartosc=?", (en, pl))
+    con.execute("UPDATE klasyfikacja SET zrodlo='model sheet' WHERE zrodlo='arkusz wzorcowy'")
+    con.execute("UPDATE klasyfikacja SET zrodlo='from theme' WHERE zrodlo='z tematu'")
+    con.execute("UPDATE klasyfikacja SET zrodlo='none' WHERE zrodlo='brak'")
 
 
 def _agregaty(dane: dict) -> tuple[float, float, float]:
@@ -207,7 +249,7 @@ def zapisz_zrzut(rap: Raport) -> str:
              rap.waluta_bazowa, rap.nav, json.dumps(dane, ensure_ascii=False),
              wartosc, koszt, gotowka),
         )
-        # nowe symbole trafiają do koszyka "Nieprzypisane", żeby nie zniknęły z raportu
+        # nowe symbole trafiają do koszyka "Unassigned", żeby nie zniknęły z raportu
         for p in rap.pozycje:
             if p.symbol:
                 con.execute("INSERT OR IGNORE INTO meta_pozycji (symbol) VALUES (?)", (p.symbol,))

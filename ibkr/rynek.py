@@ -28,14 +28,14 @@ from datetime import datetime, timezone
 # Wzorce do regresji czynnikowych. Dobrane pod ten konkretny portfel: szeroki
 # rynek, technologia, małe spółki, metale, energia, obligacje i dolar.
 WZORCE = {
-    "SPY": "Szeroki rynek USA",
-    "QQQ": "Technologia / wzrost",
-    "IWM": "Małe spółki",
-    "GLD": "Złoto",
-    "SLV": "Srebro",
-    "XLE": "Energia",
-    "TLT": "Obligacje skarbowe",
-    "UUP": "Dolar",
+    "SPY": "US broad market",
+    "QQQ": "Technology / growth",
+    "IWM": "Small caps",
+    "GLD": "Gold",
+    "SLV": "Silver",
+    "XLE": "Energy",
+    "TLT": "Treasuries",
+    "UUP": "US dollar",
 }
 
 ODSTEP = float(os.environ.get("RYNEK_ODSTEP", "0.15"))

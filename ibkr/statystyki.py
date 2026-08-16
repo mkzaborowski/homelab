@@ -41,7 +41,7 @@ def wzbogac(pozycje: list[dict], meta: dict, poprzednie: list[dict] | None) -> l
     for p in pozycje:
         m = meta.get(p.get("symbol", ""), {})
         q = dict(p)
-        q["koszyk"] = m.get("koszyk") or "Nieprzypisane"
+        q["koszyk"] = m.get("koszyk") or "Unassigned"
         q["ocena"] = m.get("ocena") or ""
         q["stop"] = m.get("stop")
         q["notatka"] = m.get("notatka") or ""
@@ -97,6 +97,11 @@ def wg_koszykow(pozycje: list[dict], nav: float) -> list[dict]:
                 "cena": loty[0].get("cena", 0.0),
                 "cena_kosztu": (k / il) if il else 0.0,
                 "zmiana_dzienna": loty[0].get("zmiana_dzienna"),
+                # Stop jest cechą SPÓŁKI, nie transzy: poziom wpisuje się raz
+                # na ticker i wszystkie loty go dziedziczą. Podnosimy go tutaj,
+                # bo po schowaniu transz zniknąłby z widoku zupełnie.
+                "stop": loty[0].get("stop"),
+                "do_stopu_proc": loty[0].get("do_stopu_proc"),
                 "udzial": (w / nav * 100) if nav else 0.0,
                 "loty": sorted(loty, key=lambda x: x.get("data_otwarcia", "")),
             })

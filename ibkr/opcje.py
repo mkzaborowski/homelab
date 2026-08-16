@@ -429,14 +429,14 @@ def analizuj_pozycje(dane: dict, dzis: date | None = None,
             poz.pokrycie = poz.akcje_pod / poz.akcje_zaangazowane
 
         if not S:
-            poz.uwagi.append("Brak kursu bazowego w zrzucie - greków nie liczę")
+            poz.uwagi.append("No underlying price in the snapshot - Greeks not computed")
         elif dni == 0:
-            poz.uwagi.append("Wygasa dziś - greki nie mają już zastosowania")
+            poz.uwagi.append("Expires today - the Greeks no longer apply")
         else:
             iv = zmiennosc_implikowana(cena, S, K, T, stopa, 0.0, prawo)
             poz.iv = iv
             if iv is None:
-                poz.uwagi.append("Cena opcji poza widełkami modelu - IV nie do wyliczenia")
+                poz.uwagi.append("Option price outside model bounds - IV cannot be solved")
             else:
                 poz.greki = greki(S, K, T, stopa, 0.0, iv, prawo)
                 poz.prawd_itm = prawd_w_pieniadzu(S, K, T, stopa, 0.0, iv, prawo)
@@ -446,7 +446,7 @@ def analizuj_pozycje(dane: dict, dzis: date | None = None,
             brak = poz.akcje_zaangazowane - poz.akcje_pod
             poz.uwagi.append(f"Niepokryte: brakuje {brak:,.0f} akcji".replace(",", " "))
         if poz.ryzyko_wczesniejszego:
-            poz.uwagi.append("Wartość czasowa bliska zeru - możliwe wcześniejsze przypisanie")
+            poz.uwagi.append("Time value near zero - early assignment is possible")
 
         wynik.append(poz)
 
@@ -535,9 +535,9 @@ def prog_odkupu(p: Pozycja) -> dict | None:
 
     powody = []
     if p.cena_opcji <= cena_cel + 1e-9:
-        powody.append(f"cena opcji spadła do progu {udzial:.0%} zainkasowanej premii")
+        powody.append(f"option price fell to the {udzial:.0%} threshold of banked premium")
     if 0 < zwrot_pozostaly < MIN_ZWROT_POZOSTALY and p.dni > 0:
-        powody.append(f"z pozostałej premii zostało tylko {zwrot_pozostaly:.1%} w skali roku")
+        powody.append(f"the remaining premium is worth only {zwrot_pozostaly:.1%} a year")
 
     return {
         "udzial_docelowy": udzial,
@@ -593,8 +593,8 @@ def scenariusze(p: Pozycja, kroki=(-0.30, -0.20, -0.10, -0.05, 0.0, 0.05, 0.10, 
 # Kubełki dni do wygaśnięcia. Granice nie są dowolne: do tygodnia gamma rośnie
 # gwałtownie i pozycja wymaga uwagi, powyżej trzech miesięcy praktycznie nic
 # się nie dzieje poza powolnym topnieniem wartości czasowej.
-KUBELKI_DTE = ((0, 7, "0–7 dni"), (8, 14, "8–14 dni"), (15, 30, "15–30 dni"),
-               (31, 60, "31–60 dni"), (61, 90, "61–90 dni"), (91, 99999, "ponad 90 dni"))
+KUBELKI_DTE = ((0, 7, "0–7 days"), (8, 14, "8–14 days"), (15, 30, "15–30 days"),
+               (31, 60, "31–60 days"), (61, 90, "61–90 days"), (91, 99999, "over 90 days"))
 
 
 def kubelek_dte(dni: int) -> str:
@@ -630,21 +630,21 @@ def moneyness(p: Pozycja) -> dict:
     Dla calla iloraz S/K: powyżej jedności kontrakt jest w pieniądzu.
     Etykieta celowo opisowa, bo „0,94" nic nie mówi bez kontekstu."""
     if not p.strike or not p.kurs_bazowego:
-        return {"iloraz": None, "etykieta": "brak kursu"}
+        return {"iloraz": None, "etykieta": "no price"}
     x = p.kurs_bazowego / p.strike
     call = p.prawo.upper().startswith("C")
     if not call:
         x = p.strike / p.kurs_bazowego
     if x >= 1.10:
-        et = "głęboko w pieniądzu"
+        et = "deep in the money"
     elif x >= 1.0:
-        et = "w pieniądzu"
+        et = "in the money"
     elif x >= 0.97:
-        et = "tuż przy pieniądzu"
+        et = "just at the money"
     elif x >= 0.90:
-        et = "blisko pieniądza"
+        et = "near the money"
     else:
-        et = "daleko poza pieniądzem"
+        et = "far out of the money"
     return {"iloraz": x, "etykieta": et}
 
 
@@ -739,14 +739,14 @@ def zakres_miesiaca(dzis: date | None = None) -> tuple[str, str]:
     return d.replace(day=1).isoformat(), d.isoformat()
 
 
-MIESIACE_PL = ("styczeń", "luty", "marzec", "kwiecień", "maj", "czerwiec", "lipiec",
-               "sierpień", "wrzesień", "październik", "listopad", "grudzień")
+MIESIACE = ("January", "February", "March", "April", "May", "June", "July",
+            "August", "September", "October", "November", "December")
 
 
 def nazwa_miesiaca(ym: str) -> str:
     try:
         rok, mies = ym.split("-")
-        return f"{MIESIACE_PL[int(mies) - 1]} {rok}"
+        return f"{MIESIACE[int(mies) - 1]} {rok}"
     except (ValueError, IndexError):
         return ym
 

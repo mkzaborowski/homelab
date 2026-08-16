@@ -10,10 +10,10 @@ import scenariusze
 
 
 CZYNNIKI = [
-    {"symbol": "SPY", "opis": "Szeroki rynek USA", "beta": 1.25, "r2": 0.55},
-    {"symbol": "QQQ", "opis": "Technologia / wzrost", "beta": 0.79, "r2": 0.50},
-    {"symbol": "GLD", "opis": "Złoto", "beta": 0.25, "r2": 0.11},
-    {"symbol": "UUP", "opis": "Dolar", "beta": -1.04, "r2": 0.08},
+    {"symbol": "SPY", "opis": "US broad market", "beta": 1.25, "r2": 0.55},
+    {"symbol": "QQQ", "opis": "Technology / growth", "beta": 0.79, "r2": 0.50},
+    {"symbol": "GLD", "opis": "Gold", "beta": 0.25, "r2": 0.11},
+    {"symbol": "UUP", "opis": "US dollar", "beta": -1.04, "r2": 0.08},
 ]
 NAV = 800_000.0
 
@@ -69,7 +69,7 @@ def test_skorelowane_czynniki_nie_licza_sie_dwa_razy():
     Bez tego na prawdziwym portfelu scenariusz technologiczny dawał -53% NAV
     przy rocznej zmienności portfela 21%: liczba efektowna i nieprawdziwa."""
     p = scenariusze.polaczone(NAV, CZYNNIKI)
-    s = next(x for x in p if x["nazwa"] == "Ucieczka od ryzyka")
+    s = next(x for x in p if x["nazwa"] == "Risk-off")
     akcyjne = [k for k in s["skladniki"] if k["grupa"] == "akcje"]
     assert len(akcyjne) >= 2                      # SPY i QQQ oba w scenariuszu
     liczone = [k for k in akcyjne if k["liczony"]]
@@ -84,7 +84,7 @@ def test_skorelowane_czynniki_nie_licza_sie_dwa_razy():
 def test_rozne_grupy_nadal_sie_sumuja():
     """Akcje, metale i dolar to naprawdę różne ekspozycje — te dodajemy."""
     p = scenariusze.polaczone(NAV, CZYNNIKI)
-    s = next(x for x in p if x["nazwa"] == "Ucieczka od ryzyka")
+    s = next(x for x in p if x["nazwa"] == "Risk-off")
     grupy = {k["grupa"] for k in s["skladniki"] if k["liczony"]}
     assert len(grupy) >= 2 and s["grup"] == len(grupy)
 
@@ -98,8 +98,8 @@ def test_scenariusz_nie_przekracza_rozsadnej_skali():
 
 def test_ucieczka_od_ryzyka_jest_ujemna_a_odbicie_dodatnie():
     p = {x["nazwa"]: x for x in scenariusze.polaczone(NAV, CZYNNIKI)}
-    assert p["Ucieczka od ryzyka"]["wplyw"] < 0
-    assert p["Odbicie ryzyka"]["wplyw"] > 0
+    assert p["Risk-off"]["wplyw"] < 0
+    assert p["Risk-on rebound"]["wplyw"] > 0
 
 
 def test_najgorszy_scenariusz_jest_na_szczycie_listy():
@@ -113,7 +113,7 @@ def test_brak_bet_daje_uczciwa_odmowe():
     Zero byłoby gorsze niż przyznanie się."""
     w = scenariusze.podsumowanie(NAV, [])
     assert w["dostepne"] is False
-    assert "historia" in w["powod"]
+    assert "price history" in w["powod"]
 
 
 def test_czynnik_bez_bety_jest_pomijany_a_nie_zerowany():

@@ -13,8 +13,8 @@ from html import escape as e
 
 import wykresy
 
-MIESIACE = ("sty", "lut", "mar", "kwi", "maj", "cze",
-            "lip", "sie", "wrz", "paź", "lis", "gru")
+MIESIACE = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def _pln(v, waluta="$"):
@@ -52,7 +52,7 @@ def wykres_obsuniecia(szereg: list[dict], wys: int = 150) -> str:
     """Obsunięcie od szczytu kroczącego. Zawsze poniżej zera, więc rysujemy
     w dół od górnej krawędzi - tak czyta się od razu, bez legendy."""
     if len(szereg) < 2:
-        return '<div class="tresc uwaga">Za mało historii na wykres.</div>'
+        return '<div class="tresc uwaga">Not enough history to plot.</div>'
     szczyt, seria = 0.0, []
     for w in szereg:
         nav = w.get("nav") or 0.0
@@ -64,13 +64,13 @@ def wykres_obsuniecia(szereg: list[dict], wys: int = 150) -> str:
     pkt = " ".join(f"{i * krok:.1f},{(r / naj) * wys:.1f}" for i, r in enumerate(seria))
     return f'''<svg viewBox="0 0 {szer} {wys}" preserveAspectRatio="none"
      style="width:100%;height:{wys}px;display:block" role="img"
-     aria-label="Obsunięcie od szczytu, najgłębsze {naj * 100:.1f} procent">
+     aria-label="Drawdown from peak, deepest {naj * 100:.1f} percent">
   <polygon points="0,0 {pkt} {szer},0" fill="var(--spadek)" fill-opacity=".16"/>
   <polyline points="{pkt}" fill="none" stroke="var(--spadek)" stroke-width="1.6"/>
 </svg>
 <div class="mini" style="display:flex;justify-content:space-between;margin-top:6px">
   <span>{e(szereg[0]["data"])}</span>
-  <span>najgłębsze {naj * 100:.2f}%</span>
+  <span>deepest {naj * 100:.2f}%</span>
   <span>{e(szereg[-1]["data"])}</span>
 </div>'''
 
@@ -81,14 +81,14 @@ def siatka_miesiecy(miesiace: list[dict]) -> str:
     Nasycenie koloru skalowane do najmocniejszego miesiąca, żeby zwykłe
     wahania nie wyglądały jak katastrofa."""
     if not miesiace:
-        return '<div class="tresc uwaga">Brak zamkniętych miesięcy.</div>'
+        return '<div class="tresc uwaga">No completed months yet.</div>'
     lata = sorted({m["miesiac"][:4] for m in miesiace})
     wg = {m["miesiac"]: m for m in miesiace}
     naj = max((abs(m["zwrot"]) for m in miesiace), default=0.01) or 0.01
 
     w = ['<div class="przewin"><table style="min-width:560px"><thead><tr><th></th>']
     w += [f'<th class="l">{m}</th>' for m in MIESIACE]
-    w.append('<th class="l">rok</th></tr></thead><tbody>')
+    w.append('<th class="l">year</th></tr></thead><tbody>')
     for rok in lata:
         w.append(f'<tr><td class="tyk">{rok}</td>')
         il = 1.0
@@ -99,15 +99,16 @@ def siatka_miesiecy(miesiace: list[dict]) -> str:
                 continue
             il *= (1.0 + m["zwrot"])
             moc = min(abs(m["zwrot"]) / naj, 1.0) * 0.42
-            kolor = f"rgba(63,185,80,{moc:.2f})" if m["zwrot"] >= 0 else f"rgba(248,81,73,{moc:.2f})"
+            baza = "var(--wzrost)" if m["zwrot"] >= 0 else "var(--spadek)"
+            kolor = f"color-mix(in srgb, {baza} {moc * 100:.0f}%, transparent)"
             gwiazdka = "" if m["pelny"] else "*"
             w.append(f'<td class="l num" style="background:{kolor}">'
                      f'{m["zwrot"] * 100:+.1f}{gwiazdka}</td>')
         w.append(f'<td class="l num"><b>{(il - 1.0) * 100:+.1f}</b></td></tr>')
     w.append('</tbody></table></div>'
-             '<div class="mini" style="margin-top:8px">Wartości w procentach. '
-             'Gwiazdka oznacza miesiąc niepełny — nie ma pełnego zestawu dni, '
-             'więc nie jest porównywalny z zamkniętymi.</div>')
+             '<div class="mini" style="margin-top:8px">Values in percent. '
+             'An asterisk marks a partial month — it does not have a full set '
+             'of days, so it is not comparable with closed ones.</div>')
     return "".join(w)
 
 
@@ -119,14 +120,14 @@ def tabela_wkladu(w: dict | None) -> str:
     """Rozkład zmienności na pozycje. Kluczowa jest kolumna „krotność":
     ile razy więcej ryzyka niż kapitału wnosi dana spółka."""
     if not w or not w.get("pozycje"):
-        return ('<div class="tresc uwaga">Brak historii kursów — rozkładu ryzyka '
-                'nie da się policzyć.</div>')
+        return ('<div class="tresc uwaga">No price history — the risk breakdown '
+                'cannot be computed.</div>')
     wiersze = []
     for p in w["pozycje"][:18]:
         kr = p["krotnosc"]
-        znak = ('<span class="plak zle">ryzyko ponad kapitał</span>' if kr >= 2.0
-                else '<span class="plak uw">powyżej wagi</span>' if kr >= 1.3
-                else '<span class="plak ok">dywersyfikuje</span>' if kr < 0.5 else '')
+        znak = ('<span class="plak zle">risk above capital</span>' if kr >= 2.0
+                else '<span class="plak uw">above weight</span>' if kr >= 1.3
+                else '<span class="plak ok">diversifies</span>' if kr < 0.5 else '')
         wiersze.append(
             f'<tr><td class="tyk">{e(p["symbol"])}</td>'
             f'<td class="l num">{_proc(p["waga"], znak=False)}</td>'
@@ -136,22 +137,22 @@ def tabela_wkladu(w: dict | None) -> str:
             f'<td>{znak}</td></tr>')
     pom = ""
     if w.get("pominiete"):
-        pom = (f'<div class="tresc"><p class="uwaga">Pominięto '
-               f'{len(w["pominiete"])} pozycji bez wystarczającej historii: '
-               f'{e(", ".join(w["pominiete"][:8]))}. Zestawienie obejmuje '
-               f'{_proc(w.get("udzial_objety", 0), znak=False)} kapitału — '
-               f'wykluczona pozycja nadal zajmuje pieniądze, tylko nie da się '
-               f'rzetelnie powiedzieć, ile wnosi ryzyka.</p></div>')
-    return ('<div class="przewin"><table><thead><tr><th>Spółka</th>'
-            '<th class="l">Kapitał</th><th class="l">Ryzyko</th>'
-            '<th class="l">Krotność</th><th class="l">Zmienność</th><th></th>'
+        pom = (f'<div class="tresc"><p class="uwaga">Skipped '
+               f'{len(w["pominiete"])} holdings without enough history: '
+               f'{e(", ".join(w["pominiete"][:8]))}. The table covers '
+               f'{_proc(w.get("udzial_objety", 0), znak=False)} of capital — '
+               f'an excluded holding still ties up money, we just cannot say '
+               f'honestly how much risk it contributes.</p></div>')
+    return ('<div class="przewin"><table><thead><tr><th>Holding</th>'
+            '<th class="l">Capital</th><th class="l">Risk</th>'
+            '<th class="l">Ratio</th><th class="l">Volatility</th><th></th>'
             f'</tr></thead><tbody>{"".join(wiersze)}</tbody></table></div>{pom}')
 
 
 def tabela_czynnikow(cz: list[dict] | None) -> str:
     """Wrażliwość portfela na czynniki rynkowe."""
     if not cz:
-        return '<div class="tresc uwaga">Brak historii kursów wzorców.</div>'
+        return '<div class="tresc uwaga">No benchmark price history.</div>'
     wiersze = "".join(
         f'<tr><td class="tyk">{e(c["opis"])}</td>'
         f'<td class="l num"><b>{c["beta"]:+.2f}</b></td>'
@@ -159,19 +160,19 @@ def tabela_czynnikow(cz: list[dict] | None) -> str:
         f'<td class="l num">{c["korelacja"]:+.2f}</td>'
         f'<td class="l num {_kl(c["alfa_roczna"])}">{_proc(c["alfa_roczna"])}</td></tr>'
         for c in cz)
-    return ('<div class="przewin"><table><thead><tr><th>Czynnik</th>'
+    return ('<div class="przewin"><table><thead><tr><th>Factor</th>'
             '<th class="l">Beta</th><th class="l">R²</th>'
-            '<th class="l">Korelacja</th><th class="l">Alfa roczna</th>'
+            '<th class="l">Correlation</th><th class="l">Annual alpha</th>'
             f'</tr></thead><tbody>{wiersze}</tbody></table></div>'
-            '<div class="mini" style="margin-top:8px">Beta mówi, o ile porusza się '
-            'portfel na każdy 1% ruchu czynnika. R² mówi, jaka część zmienności '
-            'portfela jest tym czynnikiem wyjaśniona — niskie R² znaczy, że beta '
-            'jest wprawdzie policzona, ale mało znacząca.</div>')
+            '<div class="mini" style="margin-top:8px">Beta says how far the portfolio '
+            'moves per 1% move in the factor. R² says how much of the portfolio\'s '
+            'variance that factor explains — a low R² means the beta is computed '
+            'but not meaningful.</div>')
 
 
 def pasek_udzialow(dane: list[dict], ile: int = 10) -> str:
     if not dane:
-        return '<div class="tresc uwaga">Brak danych.</div>'
+        return '<div class="tresc uwaga">No data.</div>'
     naj = max(d["udzial"] for d in dane) or 1.0
     w = []
     for d in dane[:ile]:
@@ -192,33 +193,32 @@ def pasek_udzialow(dane: list[dict], ile: int = 10) -> str:
 def zakladka_ekspozycja(a: dict | None) -> str:
     if not a or not a.get("ekspozycje"):
         return ('<div data-panel="ekspozycja" class="panel-ukryty"><div class="karta">'
-                '<div class="tresc uwaga">Brak klasyfikacji.</div></div></div>')
+                '<div class="tresc uwaga">No classification.</div></div></div>')
     ek = a["ekspozycje"]
     return f'''<div data-panel="ekspozycja" class="panel-ukryty">
-  <div class="karta"><h2>Bety czynnikowe<span class="obok">ruch portfela na 1% ruchu
-      czynnika</span></h2>
+  <div class="karta"><h2>Factor betas<span class="obok">portfolio move per 1% factor move</span></h2>
     <div class="tresc">{wykresy.tornado(
         [{"nazwa": f'{c["symbol"]} · {c["opis"]}'[:34], "wartosc": c["beta"]}
          for c in sorted(a.get("czynniki") or [], key=lambda c: c["beta"])],
         fmt=lambda v: f"{v:+.2f}")}</div>
-    <div class="tresc"><p class="uwaga">Beta ujemna znaczy, że portfel idzie
-      przeciwnie do czynnika. Sama wysokość słupka nie mówi jednak, czy zależność
-      jest istotna — to pokazuje R² w tabeli niżej.</p></div>
+    <div class="tresc"><p class="uwaga">A negative beta means the portfolio moves against the
+      factor. Bar length alone does not say whether the relationship is
+      meaningful — that is what R² in the table below is for.</p></div>
   </div>
-  <div class="karta" style="--op:60ms"><h2>Wrażliwość na czynniki rynkowe<span class="obok">regresja
-      zwrotów dziennych</span></h2>{tabela_czynnikow(a.get("czynniki"))}</div>
+  <div class="karta" style="--op:60ms"><h2>Sensitivity to market factors<span class="obok">regression on daily
+      returns</span></h2>{tabela_czynnikow(a.get("czynniki"))}</div>
   <div class="siatka dwie">
-    <div class="karta" style="--op:80ms"><h2>Tematy<span class="obok">udział w wartości</span></h2>
+    <div class="karta" style="--op:80ms"><h2>Themes<span class="obok">share of value</span></h2>
       <div class="tresc">{wykresy.pierscien(
         [(x["nazwa"], x["wartosc"]) for x in (ek.get("temat") or [])],
-        srodek_gora=f'{len(ek.get("temat") or [])}', srodek_dol="tematów")}</div></div>
-    <div class="karta" style="--op:140ms"><h2>Sektory</h2><div class="tresc">
+        srodek_gora=f'{len(ek.get("temat") or [])}', srodek_dol="themes")}</div></div>
+    <div class="karta" style="--op:140ms"><h2>Sectors</h2><div class="tresc">
       {wykresy.slupki_poziome(ek.get("sektor") or [])}</div></div>
   </div>
   <div class="siatka dwie">
-    <div class="karta" style="--op:200ms"><h2>Kraje</h2><div class="tresc">
+    <div class="karta" style="--op:200ms"><h2>Countries</h2><div class="tresc">
       {wykresy.slupki_poziome(ek.get("kraj") or [], ile=6)}</div></div>
-    <div class="karta" style="--op:260ms"><h2>Klasy aktywów</h2><div class="tresc">
+    <div class="karta" style="--op:260ms"><h2>Asset classes</h2><div class="tresc">
       {wykresy.pierscien([(x["nazwa"], abs(x["wartosc"])) for x in (ek.get("klasa") or [])],
         rozmiar=150)}</div></div>
   </div>
@@ -269,31 +269,28 @@ def zakladka_scenariusze(s: dict | None) -> str:
         f'<td class="l num {_kl(x["wplyw_proc"])}">{_proc(x["wplyw_proc"])}</td></tr>'
         for x in s["pojedyncze"])
     return f'''<div data-panel="scenariusze" class="panel-ukryty">
-  <div class="kom uw"><b>To są szacunki, nie prognozy.</b> Przełożenie jest liniowe
-    przez bety z ostatniego roku. W prawdziwym krachu korelacje rosną, a bety się
-    rozjeżdżają — model zaniża straty w scenariuszach najgłębszych. Opcje wchodzą
-    przez deltę i gammę, co przy dużych ruchach też jest przybliżeniem.</div>
-  <div class="karta"><h2>Wpływ scenariuszy na NAV<span class="obok">w procentach
-      wartości konta</span></h2>
+  <div class="kom uw"><b>These are estimates, not forecasts.</b> The mapping is
+    linear through betas from the last year. In a real crash correlations rise and
+    betas drift — the model understates losses in exactly the deepest scenarios.
+    Options enter through delta and gamma, which is also an approximation for
+    large moves.</div>
+  <div class="karta"><h2>Scenario impact on NAV<span class="obok">percent of account value</span></h2>
     <div class="tresc">{wykresy.tornado(
         [{"nazwa": x["nazwa"], "wartosc": x["wplyw_proc"] * 100} for x in s["polaczone"]])}</div>
   </div>
-  <div class="karta" style="--op:60ms"><h2>Wrażliwość na pojedyncze czynniki<span
-      class="obok">jednolity wstrząs −10%</span></h2>
+  <div class="karta" style="--op:60ms"><h2>Single-factor sensitivity<span class="obok">uniform −10% shock</span></h2>
     <div class="tresc">{wykresy.tornado(porownywalne_wstrzasy(s["pojedyncze"]))}</div>
-    <div class="tresc"><p class="uwaga">Wszystkie czynniki przy tym samym ruchu
-      −10%, żeby dało się je porównać między sobą. Pełną siatkę wstrząsów
-      zawiera tabela niżej.</p></div>
+    <div class="tresc"><p class="uwaga">Every factor at the same −10% move, so they can be compared
+      with each other. The full shock grid is in the table below.</p></div>
   </div>
-  <div class="karta" style="--op:120ms"><h2>Sytuacje rynkowe<span class="obok">kilka wstrząsów
-      naraz</span></h2>
-    <div class="przewin"><table><thead><tr><th>Scenariusz</th>
-      <th class="l">Wpływ</th><th class="l">% NAV</th><th class="l">NAV po</th>
-      <th>Składniki</th></tr></thead><tbody>{pol}</tbody></table></div>
+  <div class="karta" style="--op:120ms"><h2>Market situations<span class="obok">several shocks at once</span></h2>
+    <div class="przewin"><table><thead><tr><th>Scenario</th>
+      <th class="l">Impact</th><th class="l">% of NAV</th><th class="l">NAV after</th>
+      <th>Components</th></tr></thead><tbody>{pol}</tbody></table></div>
   </div>
-  <div class="karta"><h2>Pojedyncze wstrząsy</h2>
-    <div class="przewin"><table><thead><tr><th>Czynnik</th><th class="l">Ruch</th>
-      <th class="l">Beta</th><th class="l">Wpływ</th><th class="l">% NAV</th>
+  <div class="karta"><h2>Single shocks</h2>
+    <div class="przewin"><table><thead><tr><th>Factor</th><th class="l">Move</th>
+      <th class="l">Beta</th><th class="l">Impact</th><th class="l">% of NAV</th>
       </tr></thead><tbody>{poj}</tbody></table></div>
   </div>
 </div>'''
@@ -302,7 +299,7 @@ def zakladka_scenariusze(s: dict | None) -> str:
 def zakladka_wynik(a: dict | None) -> str:
     if not a or not a.get("zwrot", {}).get("dostepne"):
         return ('<div data-panel="wynik" class="panel-ukryty"><div class="karta">'
-                '<div class="tresc uwaga">Brak historii do policzenia zwrotu.</div>'
+                '<div class="tresc uwaga">Not enough history to compute a return.</div>'
                 '</div></div>')
     z = a["zwrot"]
     o = z["obsuniecia"]
@@ -310,68 +307,66 @@ def zakladka_wynik(a: dict | None) -> str:
 
     kafle = "".join([
         _kafel("TWR", _proc(z["twr"], po=2), _kl(z["twr"]),
-               "ważony czasem · porównywalny z indeksem"),
-        _kafel("TWR w skali roku", _proc(z["twr_roczny"]), _kl(z["twr_roczny"]),
-               f'{z["dni"]} dni historii'),
+               "time-weighted · comparable to an index"),
+        _kafel("TWR annualised", _proc(z["twr_roczny"]), _kl(z["twr_roczny"]),
+               f'{z["dni"]} days of history'),
         _kafel("MWR / XIRR", _proc(z["mwr"]), _kl(z["mwr"]),
-               "Twój zwrot na wpłaconym kapitale"),
+               "your return on the cash you put in"),
         _kafel("Modified Dietz", _proc(z["dietz"]), _kl(z["dietz"]),
-               "przybliżenie przy nieznanej godzinie przelewu"),
-        _kafel("Przelewy", f'{z["przeplywow"]}', "mut",
-               "dni z wpłatą lub wypłatą"),
-        _kafel("Maks. obsunięcie", _proc(o["maks"]), "down",
+               "approximation when the transfer time is unknown"),
+        _kafel("Transfers", f'{z["przeplywow"]}', "mut",
+               "days with a deposit or withdrawal"),
+        _kafel("Max drawdown", _proc(o["maks"]), "down",
                f'{e(o["maks_od"])} → {e(o["maks_dno"])}'),
-        _kafel("Bieżące obsunięcie", _proc(o["biezace"]), _kl(o["biezace"]),
-               f'{o["dni_od_szczytu"]} dni od szczytu'),
-        _kafel("Najdłuższe obsunięcie", f'{o["najdluzsze_dni"]} dni', "mut",
-               "czas powrotu do szczytu"),
+        _kafel("Current drawdown", _proc(o["biezace"]), _kl(o["biezace"]),
+               f'{o["dni_od_szczytu"]} days since the peak'),
+        _kafel("Longest drawdown", f'{o["najdluzsze_dni"]} days', "mut",
+               "time taken to regain the peak"),
     ])
 
     wiersz_uzg = ""
     if uzg.get("ibkr") is not None:
         roz = abs((z["twr"] or 0) * 100 - uzg["ibkr"])
-        stan = ('<span class="plak ok">zgodne</span>' if roz < 0.01
-                else f'<span class="plak uw">różnica {roz:.3f} pp</span>')
-        wiersz_uzg = (f'<div class="tresc"><p class="uwaga">Uzgodnienie: IBKR podaje '
-                      f'w wyciągu TWR <b>{uzg["ibkr"]:.3f}%</b>, panel liczy '
+        stan = ('<span class="plak ok">reconciled</span>' if roz < 0.01
+                else f'<span class="plak uw">off by {roz:.3f} pp</span>')
+        wiersz_uzg = (f'<div class="tresc"><p class="uwaga">Reconciliation: the IBKR statement '
+                      f'reports TWR <b>{uzg["ibkr"]:.3f}%</b>, this panel computes '
                       f'<b>{(z["twr"] or 0) * 100:.3f}%</b>. {stan}</p></div>')
 
     ostrzezenie = ""
     if not z.get("wystarczajaco"):
-        ostrzezenie = (f'<div class="kom uw">Tylko {z["obserwacji"]} obserwacji — '
-                       f'część miar jest jeszcze niepewna (potrzeba '
-                       f'{z["min_obserwacji"]}).</div>')
+        ostrzezenie = (f'<div class="kom uw">Only {z["obserwacji"]} observations — some measures '
+                       f'are still unreliable ({z["min_obserwacji"]} needed).</div>')
 
     naiwny = ""
     if z.get("prosty") is not None and z.get("twr") is not None \
             and abs(z["prosty"] - z["twr"]) > 0.05:
-        naiwny = (f'<div class="tresc"><p class="uwaga">Sama różnica wartości konta '
-                  f'to <b>{_proc(z["prosty"], po=1)}</b>, ale wpłaty i wypłaty '
-                  f'nie są wynikiem inwestycyjnym. Po ich odjęciu zostaje '
-                  f'<b>{_proc(z["twr"])}</b> — i to jest zwrot z portfela.</p></div>')
+        naiwny = (f'<div class="tresc"><p class="uwaga">The raw change in account value is '
+                  f'<b>{_proc(z["prosty"], po=1)}</b>, but deposits and withdrawals '
+                  f'are not investment results. Strip them out and '
+                  f'<b>{_proc(z["twr"])}</b> is left — that is the portfolio '
+                  f'return.</p></div>')
 
     return f'''<div data-panel="wynik" class="panel-ukryty">
   {ostrzezenie}
-  <div class="karta"><h2>Wynik<span class="obok">{e(z["od"])} → {e(z["do"])}</span></h2>
+  <div class="karta"><h2>Performance<span class="obok">{e(z["od"])} → {e(z["do"])}</span></h2>
     <div class="kafle">{kafle}</div>
     {naiwny}{wiersz_uzg}
   </div>
-  <div class="karta" style="--op:60ms"><h2>Krzywa wyniku<span class="obok">indeks,
-      start = 100</span></h2>
+  <div class="karta" style="--op:60ms"><h2>Performance curve<span class="obok">index, start = 100</span></h2>
     <div class="tresc">{wykresy.obszar(a.get("krzywa") or [], jednostka="",
-        odniesienie=100.0, zakresy=True, opis="Skumulowany zwrot ważony czasem")}</div>
-    <div class="tresc"><p class="uwaga">Ta krzywa pokazuje sam wynik inwestycyjny:
-      przelewy są z niej wyczyszczone, więc każdy jej ruch to rynek albo decyzja,
-      nigdy wpłata. Kreska na wysokości 100 to punkt wyjścia — tylko tę krzywą
-      wolno położyć obok indeksu.</p></div></div>
-  <div class="karta" style="--op:120ms"><h2>Wartość konta<span class="obok">{len(a["szereg"])} dni ·
-      z przelewami</span></h2>
+        odniesienie=100.0, zakresy=True, opis="Cumulative time-weighted return")}</div>
+    <div class="tresc"><p class="uwaga">This curve shows the investment result alone: transfers are
+      stripped out, so every move in it is the market or a decision, never a
+      deposit. The line at 100 is the starting point — this is the only curve
+      you may put next to an index.</p></div></div>
+  <div class="karta" style="--op:120ms"><h2>Account value<span class="obok">{len(a["szereg"])} days · transfers included</span></h2>
     <div class="tresc">{wykresy.obszar([(w["data"], w["nav"]) for w in a["szereg"]],
-        opis="Wartość konta", zakresy=True)}</div></div>
-  <div class="karta" style="--op:180ms"><h2>Obsunięcie od szczytu<span class="obok">odległość od
-      najwyższej dotąd wartości</span></h2>
+        opis="Account value", zakresy=True)}</div></div>
+  <div class="karta" style="--op:180ms"><h2>Drawdown from peak<span class="obok">distance from the highest value so
+      far</span></h2>
     <div class="tresc">{wykres_obsuniecia(a["szereg"])}</div></div>
-  <div class="karta" style="--op:240ms"><h2>Zwroty miesiąc po miesiącu</h2>
+  <div class="karta" style="--op:240ms"><h2>Month-by-month returns</h2>
     <div class="tresc">{wykresy.slupki_pionowe(
         [(m["miesiac"], m["zwrot"] * 100) for m in (a.get("miesiace") or [])])}</div>
     {siatka_miesiecy(a.get("miesiace") or [])}</div>
@@ -381,105 +376,102 @@ def zakladka_wynik(a: dict | None) -> str:
 def zakladka_ryzyko(a: dict | None) -> str:
     if not a or not a.get("ryzyko"):
         return ('<div data-panel="ryzyko" class="panel-ukryty"><div class="karta">'
-                '<div class="tresc uwaga">Brak danych do analizy ryzyka.</div>'
+                '<div class="tresc uwaga">No data for risk analysis.</div>'
                 '</div></div>')
     r = a["ryzyko"]
     k = a.get("koncentracja") or {}
 
     kafle = "".join([
-        _kafel("Zmienność roczna", _proc(r["zmiennosc"], znak=False), "mut",
-               "odchylenie zwrotów w skali roku"),
-        _kafel("Zmienność ujemna", _proc(r["zmiennosc_ujemna"], znak=False), "mut",
-               "liczona tylko z dni spadkowych"),
+        _kafel("Annual volatility", _proc(r["zmiennosc"], znak=False), "mut",
+               "standard deviation of returns, annualised"),
+        _kafel("Downside volatility", _proc(r["zmiennosc_ujemna"], znak=False), "mut",
+               "computed from losing days only"),
         _kafel("Sharpe", _licz(r["sharpe"]), _kl(r["sharpe"]),
-               "nadwyżka na jednostkę zmienności"),
+               "excess return per unit of volatility"),
         _kafel("Sortino", _licz(r["sortino"]), _kl(r["sortino"]),
-               "karze wyłącznie spadki"),
+               "penalises downside only"),
         _kafel("Calmar", _licz(r["calmar"]), _kl(r["calmar"]),
-               "zwrot na jednostkę obsunięcia"),
-        _kafel("VaR 95% dzienny", _proc(r["var95"]), "down",
-               "gorzej niż tyle w 1 dniu na 20"),
+               "return per unit of drawdown"),
+        _kafel("Daily VaR 95%", _proc(r["var95"]), "down",
+               "worse than this on 1 day in 20"),
         _kafel("CVaR 95%", _proc(r["cvar95"]), "down",
-               "średnia strata w tych złych dniach"),
-        _kafel("VaR 99% dzienny", _proc(r["var99"]), "down",
-               "gorzej niż tyle w 1 dniu na 100"),
+               "average loss on those bad days"),
+        _kafel("Daily VaR 99%", _proc(r["var99"]), "down",
+               "worse than this on 1 day in 100"),
     ])
 
     kafle_konc = "".join([
-        _kafel("Największa pozycja", _proc(k.get("top1", 0) / 100, znak=False), "mut", ""),
+        _kafel("Largest holding", _proc(k.get("top1", 0) / 100, znak=False), "mut", ""),
         _kafel("Top 3", _proc(k.get("top3", 0) / 100, znak=False), "mut", ""),
         _kafel("Top 5", _proc(k.get("top5", 0) / 100, znak=False), "mut", ""),
         _kafel("Top 10", _proc(k.get("top10", 0) / 100, znak=False), "mut", ""),
-        _kafel("HHI", _licz(k.get("hhi"), 0), "mut", "indeks koncentracji"),
-        _kafel("Efektywna liczba pozycji", _licz(k.get("efektywna_liczba"), 1), "mut",
-               f'z {k.get("pozycji", 0)} faktycznych'),
+        _kafel("HHI", _licz(k.get("hhi"), 0), "mut", "concentration index"),
+        _kafel("Effective holdings", _licz(k.get("efektywna_liczba"), 1), "mut",
+               f'out of {k.get("pozycji", 0)} actual'),
     ]) if k.get("dostepne") else ""
 
     braki = ""
     if r.get("braki"):
-        braki = ('<div class="kom uw"><b>Nie wszystko da się jeszcze policzyć.</b><br>'
+        braki = ('<div class="kom uw"><b>Not everything can be computed yet.</b><br>'
                  + "<br>".join(e(b) for b in r["braki"]) + '</div>')
 
     komentarz_konc = ""
     if k.get("dostepne") and k.get("efektywna_liczba"):
         komentarz_konc = (
-            f'<div class="tresc"><p class="uwaga">Portfel ma {k["pozycji"]} pozycji, '
-            f'ale zachowuje się jak <b>{k["efektywna_liczba"]:.1f}</b> — tyle wynosi '
-            f'efektywna liczba po uwzględnieniu wag. Sama liczba spółek nie jest '
-            f'miarą dywersyfikacji.</p></div>')
+            f'<div class="tresc"><p class="uwaga">The portfolio holds {k["pozycji"]} '
+            f'positions but behaves like <b>{k["efektywna_liczba"]:.1f}</b> — that is '
+            f'the effective count once weights are taken into account. The number '
+            f'of holdings on its own is not a measure of diversification.</p></div>')
 
     return f'''<div data-panel="ryzyko" class="panel-ukryty">
   {braki}
-  <div class="karta"><h2>Ryzyko<span class="obok">{r["obserwacji"]} obserwacji
-      dziennych</span></h2>
+  <div class="karta"><h2>Risk<span class="obok">{r["obserwacji"]} daily observations</span></h2>
     <div class="kafle">{kafle}</div>
-    <div class="tresc"><p class="uwaga">VaR i CVaR liczone historycznie, z faktycznego
-      rozkładu zwrotów, a nie z założenia normalności — rozkład dzienny ma grubsze
-      ogony, więc normalność zaniżałaby stratę dokładnie tam, gdzie to najbardziej
-      kosztuje.</p></div>
+    <div class="tresc"><p class="uwaga">VaR and CVaR are historical, taken from the actual return
+      distribution rather than an assumption of normality — daily returns have
+      fatter tails, so normality would understate the loss exactly where it costs
+      the most.</p></div>
   </div>
-  <div class="karta" style="--op:60ms"><h2>Rozkład zwrotów dziennych<span class="obok">{
-      r["obserwacji"]} sesji</span></h2>
+  <div class="karta" style="--op:60ms"><h2>Daily return distribution<span class="obok">{r["obserwacji"]} sessions</span></h2>
     <div class="tresc">{wykresy.histogram(a.get("rozklad_zwrotow") or [], znaczniki=[
         z for z in (
             {"wartosc": r.get("var95"), "etykieta": "VaR 95%", "kolor": "var(--uwaga)"},
             {"wartosc": r.get("cvar95"), "etykieta": "CVaR 95%", "kolor": "var(--spadek)"},
             {"wartosc": r.get("var99"), "etykieta": "VaR 99%", "kolor": "var(--spadek)"},
-        ) if z["wartosc"] is not None], opis="Rozkład dziennych stóp zwrotu")}</div>
-    <div class="tresc"><p class="uwaga">Każdy słupek to liczba sesji, które skończyły
-      się zwrotem z danego przedziału. Ramka jest symetryczna wokół zera, więc
-      przechył rozkładu widać jako przechył obrazka. Pionowe linie zaznaczają
-      progi z kafli powyżej — dopiero z nimi ten wykres o czymś mówi.</p></div>
+        ) if z["wartosc"] is not None], opis="Distribution of daily returns")}</div>
+    <div class="tresc"><p class="uwaga">Each bar is the number of sessions that ended with a return
+      in that band. The frame is symmetric around zero, so a skewed distribution
+      shows up as a skewed picture. The vertical lines mark the thresholds from
+      the tiles above — the chart only says something once they are on it.</p></div>
   </div>
-  <div class="karta" style="--op:120ms"><h2>Zmienność w oknie 30 sesji<span class="obok">w skali
-      roku</span></h2>
+  <div class="karta" style="--op:120ms"><h2>Volatility over a 30-session window<span class="obok">annualised</span></h2>
     <div class="tresc">{wykresy.obszar(
         [(d, v * 100) for d, v in (a.get("zmiennosc_kroczaca") or [])],
-        wys=190, jednostka="", opis="Zmienność krocząca",
+        wys=190, jednostka="", opis="Rolling volatility",
         odniesienie=(r["zmiennosc"] * 100) if r.get("zmiennosc") else None,
         zakresy=True)}</div>
-    <div class="tresc"><p class="uwaga">Jedna liczba za cały okres uśrednia spokój
-      z burzą. Ta krzywa mówi, w którą stronę ryzyko właśnie idzie; przerywana
-      linia to średnia z całej historii.</p></div>
+    <div class="tresc"><p class="uwaga">A single number for the whole period averages calm together
+      with storm. This curve says which way risk is heading right now; the dashed
+      line is the average across all history.</p></div>
   </div>
-  <div class="karta"><h2>Koncentracja kapitału</h2>
+  <div class="karta"><h2>Capital concentration</h2>
     <div class="kafle">{kafle_konc}</div>{komentarz_konc}
   </div>
-  <div class="karta"><h2>Kapitał kontra ryzyko<span class="obok">pozycja po pozycji</span></h2>
+  <div class="karta"><h2>Capital versus risk<span class="obok">holding by holding</span></h2>
     <div class="tresc">{wykresy.rozrzut(
         [{"x": p["waga"] * 100, "y": p["udzial_w_ryzyku"] * 100, "etykieta": p["symbol"]}
          for p in ((a.get("wklad") or {}).get("pozycje") or [])],
-        os_x="udział w kapitale →", os_y="↑ udział w ryzyku",
-        opis="Udział w kapitale wobec udziału w ryzyku")}</div>
-    <div class="tresc"><p class="uwaga">Przekątna to równowaga: na niej pozycja
-      wnosi tyle ryzyka, ile kapitału. Punkty nad nią pracują ciężej, niż ważą —
-      i to one decydują o zmienności całości.</p></div>
+        os_x="share of capital →", os_y="↑ share of risk",
+        opis="Share of capital versus share of risk")}</div>
+    <div class="tresc"><p class="uwaga">The diagonal is balance: on it a holding contributes as much
+      risk as capital. Points above it work harder than they weigh — and they are
+      what drives the volatility of the whole.</p></div>
   </div>
-  <div class="karta"><h2>Wkład do ryzyka<span class="obok">udział w zmienności
-      wobec udziału w kapitale</span></h2>{tabela_wkladu(a.get("wklad"))}
-    <div class="tresc"><p class="uwaga">Krotność powyżej jedności znaczy, że pozycja
-      wnosi więcej ryzyka, niż wynikałoby z jej wielkości. Poniżej jedności —
-      że działa jak stabilizator. To jest inna informacja niż sama waga
-      i zwykle ciekawsza.</p></div>
+  <div class="karta"><h2>Risk contribution<span class="obok">share of volatility versus share of
+      capital</span></h2>{tabela_wkladu(a.get("wklad"))}
+    <div class="tresc"><p class="uwaga">A ratio above one means the holding brings more risk than its
+      size would suggest. Below one means it acts as a stabiliser. This is a
+      different piece of information from weight alone, and usually a more
+      interesting one.</p></div>
   </div>
 </div>'''

@@ -54,12 +54,12 @@ def _odswiez_ceny(pozycje: list[dict]) -> str:
         serie, bledy = rynek.pobierz_wiele(symbole)
         d = rynek.dostawca()
         store.zapisz_ceny(serie, zrodlo=d.nazwa)
-        opis = f"kursy: {len(serie)}/{len(symbole)} symboli"
+        opis = f"prices: {len(serie)}/{len(symbole)} symbols"
         if bledy:
-            opis += f" (bez historii: {', '.join(bledy[:6])})"
+            opis += f" (no history: {', '.join(bledy[:6])})"
         return opis
     except Exception as e:                                      # noqa: BLE001
-        return f"kursy nie zadziałały: {type(e).__name__}: {e}"
+        return f"prices failed: {type(e).__name__}: {e}"
 
 
 def _sprawdz_alerty() -> str:
@@ -73,21 +73,21 @@ def _sprawdz_alerty() -> str:
     try:
         z = store.zrzut()
         if not z:
-            return "alerty pominięte (brak zrzutu)"
+            return "alerts skipped (no snapshot)"
         kursy = notowania.pobierz(notowania.symbole_ze_zrzutu(z["dane"]))
         a = opcje.analiza_do_panelu(z["dane"], store.transakcje(),
                                     store.zakres_rejestru(), kursy=kursy)
         nowe = store.przetworz_alerty(a["alerty"])
         if not nowe:
-            return f"progi odkupu: {len(a['alerty'])} czynnych, nic nowego"
+            return f"buyback thresholds: {len(a['alerty'])} active, nothing new"
         ok, opis = powiadom.wyslij(nowe)
         for x in nowe:
             store.oznacz_wyslane(x["symbol"], " · ".join(x["powody"]),
-                                 powiadom.KANAL or "brak", ok)
-        zrodlo = "notowania" if kursy else "wyciąg"
-        return f"NOWY PRÓG ODKUPU: {len(nowe)} ({zrodlo}) — {opis}"
+                                 powiadom.KANAL or "none", ok)
+        zrodlo = "live quotes" if kursy else "statement"
+        return f"NEW BUYBACK THRESHOLD: {len(nowe)} ({zrodlo}) — {opis}"
     except Exception as e:                                      # noqa: BLE001
-        return f"alerty nie zadziałały: {type(e).__name__}: {e}"
+        return f"alerts failed: {type(e).__name__}: {e}"
 
 
 def uruchom(token: str | None = None, query_id: str | None = None) -> tuple[bool, str]:
@@ -95,7 +95,7 @@ def uruchom(token: str | None = None, query_id: str | None = None) -> tuple[bool
     token = token or os.environ.get("IBKR_TOKEN", "")
     query_id = query_id or os.environ.get("IBKR_QUERY_ID", "")
     if not token or not query_id:
-        kom = "Brak IBKR_TOKEN lub IBKR_QUERY_ID"
+        kom = "IBKR_TOKEN or IBKR_QUERY_ID is missing"
         store.zapisz_przebieg(False, kom)
         return False, kom
 
@@ -114,21 +114,21 @@ def uruchom(token: str | None = None, query_id: str | None = None) -> tuple[bool
         except Exception:                                       # noqa: BLE001
             przyp = {}
         k = klasyfikacja.przypisz(dane.get("pozycje", []), przyp)
-        czesci_klas = (f"klasyfikacja: {k['z_arkusza']} z arkusza, {k['z_mapy']} z mapy, "
-                       f"{k['bez_przypisania']} bez")
+        czesci_klas = (f"classified: {k['z_arkusza']} from the sheet, {k['z_mapy']} from the map, "
+                       f"{k['bez_przypisania']} unassigned")
 
         kwartaly = _kwartaly_do_raportu()
         if kwartaly:
             raport_excel.zbuduj(PLIK_XLSX, kwartaly)
 
-        czesci = [f"zapisano {dzien}", f"{len(rap.pozycje)} pozycji",
-                  f"{len(rap.historia_nav)} dni NAV", f"{len(rap.operacje)} operacji",
+        czesci = [f"saved {dzien}", f"{len(rap.pozycje)} positions",
+                  f"{len(rap.historia_nav)} NAV days", f"{len(rap.operacje)} cash entries",
                   czesci_klas]
         if sheets.skonfigurowane() and kwartaly:
             try:
                 czesci.append(sheets.wypchnij(kwartaly[-1][0]))
             except Exception as e:                          # noqa: BLE001
-                czesci.append(f"Sheets nie zadziałało: {e}")
+                czesci.append(f"Sheets failed: {e}")
 
         czesci.append(_odswiez_ceny(dane.get("pozycje", [])))
         czesci.append(_sprawdz_alerty())

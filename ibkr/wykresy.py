@@ -22,24 +22,30 @@ from __future__ import annotations
 import math
 from html import escape as e
 
-# Wspólna paleta. Semantyka (wzrost/spadek/uwaga) jest ODDZIELONA od akcentu:
-# akcent oznacza „to jest interaktywne albo wyróżnione", a nie „to jest dobre".
-# Kolory idą przez zmienne CSS, nie przez stałe. Dzięki temu wykresy zmieniają
-# się razem z motywem, zamiast zostawać niebieskie na fioletowym tle albo
-# białoszare na jasnym. SVG rozumie var() w atrybutach stroke i fill,
-# a także w stop-color gradientu.
-AKCENT = "var(--akcent)"
-AKCENT_2 = "var(--akcent-2)"
+# Kolor na tym panelu należy do DANYCH, nie do interfejsu. Chrom jest
+# neutralny, więc każda plama barwy na ekranie oznacza liczbę - i wykres nie
+# musi konkurować o uwagę z paskiem bocznym ani z przyciskami.
+#
+# Semantyka (wzrost/spadek/uwaga) jest oddzielona od koloru danych: barwa
+# szeregu znaczy „to jest ten szereg", zieleń i czerwień znaczą „lepiej albo
+# gorzej". Niebieski nigdy nie znaczy „dobrze".
+#
+# Kolory idą przez zmienne CSS, nie przez stałe, więc zmieniają się razem
+# z motywem. SVG rozumie var() w stroke, fill i w stop-color gradientu.
+AKCENT = "var(--dane)"
+AKCENT_2 = "var(--dane-2)"
 WZROST = "var(--wzrost)"
 SPADEK = "var(--spadek)"
 UWAGA = "var(--uwaga)"
 SIATKA = "var(--siatka)"
 TEKST_SLABY = "var(--tekst-3)"
 
-# Paleta pierścieni. Tu potrzebne są wartości bezwzględne, bo kategorii bywa
-# osiem i muszą być rozróżnialne między sobą, a nie tylko wobec tła.
-PALETA = ["#7C5CFC", "#9E86FF", "#5B8DEF", "#3DBFA0", "#12A150",
-          "#E5A21A", "#EE7C4E", "#C05FD8"]
+# Paleta kategorii. Tu potrzebne są wartości bezwzględne, bo kategorii bywa
+# osiem i muszą być rozróżnialne MIĘDZY SOBĄ, a nie tylko wobec tła - a to
+# jest wymaganie, którego zmienna motywu nie umie spełnić. Odcienie dobrane
+# tak, żeby trzymały kontrast i na bieli, i na czerni.
+PALETA = ["#0071E3", "#FF9500", "#34C759", "#FF375F", "#5AC8FA",
+          "#00C7BE", "#A2845E", "#8E8E93"]
 
 _licznik = [0]
 
@@ -107,7 +113,7 @@ def iskierka(wartosci: list[float], kolor: str = AKCENT, szer: int = 120,
 #  wykres warstwowy z gradientem
 # --------------------------------------------------------------------------- #
 
-ZAKRESY = [("1M", 22), ("3M", 65), ("6M", 130), ("1R", 260), ("Całość", 0)]
+ZAKRESY = [("1M", 22), ("3M", 65), ("6M", 130), ("1Y", 260), ("All", 0)]
 
 
 def obszar(szereg: list[tuple[str, float]], wys: int = 230, kolor: str = AKCENT,
@@ -118,7 +124,7 @@ def obszar(szereg: list[tuple[str, float]], wys: int = 230, kolor: str = AKCENT,
     Siatka jest celowo ledwo widoczna. Ma dać oku punkt odniesienia, a nie
     konkurować z danymi - to dane mają być najjaśniejszym elementem kadru."""
     if len(szereg) < 2:
-        return '<div class="pusto">Za mało danych na wykres.</div>'
+        return '<div class="pusto">Not enough data to plot.</div>'
     wartosci = [v for _, v in szereg]
     lo, hi = min(wartosci), max(wartosci)
     if odniesienie is not None:
@@ -164,7 +170,7 @@ def obszar(szereg: list[tuple[str, float]], wys: int = 230, kolor: str = AKCENT,
      data-jedn="{e(jednostka)}" data-lo="{lo:.4f}" data-hi="{hi:.4f}" data-wys="{wys}">
 {pigulki}
 <svg viewBox="0 0 {szer} {wys}" preserveAspectRatio="none" role="img"
-     aria-label="{e(opis or "Przebieg wartości")}: od {jednostka}{wartosci[0]:,.0f} do {jednostka}{wartosci[-1]:,.0f}">
+     aria-label="{e(opis or "Value over time")}: od {jednostka}{wartosci[0]:,.0f} do {jednostka}{wartosci[-1]:,.0f}">
   <defs>
     <linearGradient id="{g}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="{kolor}" stop-opacity=".30"/>
@@ -205,7 +211,7 @@ def linie(serie: list[dict], wys: int = 230, jednostka: str = "",
     przedmiotem, a który tłem."""
     serie = [s for s in serie if len(s.get("punkty") or []) >= 2]
     if not serie:
-        return '<div class="pusto">Za mało danych na wykres.</div>'
+        return '<div class="pusto">Not enough data to plot.</div>'
 
     wszystkie = [v for s in serie for _, v in s["punkty"]]
     lo, hi = min(wszystkie), max(wszystkie)
@@ -244,7 +250,7 @@ def linie(serie: list[dict], wys: int = 230, jednostka: str = "",
     etyk = serie[0]["punkty"]
     return (f'<div class="wykres">'
             f'<svg viewBox="0 0 {szer} {wys}" preserveAspectRatio="none" role="img" '
-            f'aria-label="{e(opis or "Porównanie przebiegów")}">'
+            f'aria-label="{e(opis or "Series comparison")}">'
             f'{siatka}{odn}{"".join(sciezki)}</svg>'
             f'<div class="wykres-osx"><span>{e(etyk[0][0])}</span>'
             f'<span>{e(etyk[-1][0])}</span></div>'
@@ -267,7 +273,7 @@ def histogram(kubelki: list[dict], znaczniki: list[dict] | None = None,
     czyta się przede wszystkim przez asymetrię, a ta ginie w monochromie."""
     kubelki = kubelki or []
     if not kubelki:
-        return '<div class="pusto">Brak danych.</div>'
+        return '<div class="pusto">No data.</div>'
     naj = max(k["ile"] for k in kubelki) or 1
     lo = min(k["od"] for k in kubelki)
     hi = max(k["do"] for k in kubelki)
@@ -277,7 +283,7 @@ def histogram(kubelki: list[dict], znaczniki: list[dict] | None = None,
     slupki = "".join(
         f'<div class="hg-k" style="--h:{k["ile"] / naj * 100:.1f}%;--op:{i * 18}ms;'
         f'--kol:{WZROST if k["od"] >= 0 else SPADEK}" '
-        f'title="{k["od"] * 100:+.2f}% … {k["do"] * 100:+.2f}%: {k["ile"]} dni"></div>'
+        f'title="{k["od"] * 100:+.2f}% … {k["do"] * 100:+.2f}%: {k["ile"]} days"></div>'
         for i, k in enumerate(kubelki))
 
     # Progi VaR leżą blisko siebie z definicji - to sąsiednie kwantyle tego
@@ -292,7 +298,7 @@ def histogram(kubelki: list[dict], znaczniki: list[dict] | None = None,
         f'<span>{e(z["etykieta"])}</span></div>'
         for i, z in enumerate(sorted(widoczne, key=lambda z: z["wartosc"])))
 
-    return (f'<div class="hg" role="img" aria-label="{e(opis or "Rozkład wartości")}">'
+    return (f'<div class="hg" role="img" aria-label="{e(opis or "Distribution")}">'
             f'<div class="hg-pole" style="height:{wys}px;--szer:{szer_s:.2f}%">'
             f'{slupki}{zn}</div>'
             f'<div class="wykres-osx"><span>{lo * 100:+.1f}%</span>'
@@ -314,7 +320,7 @@ def tornado(dane: list[dict], fmt=lambda v: f"{v:+.1f}%") -> str:
     dotyka krawędzi, reszta jest z nim porównywalna."""
     dane = [d for d in dane if d.get("wartosc") is not None]
     if not dane:
-        return '<div class="pusto">Brak danych.</div>'
+        return '<div class="pusto">No data.</div>'
     naj = max(abs(d["wartosc"]) for d in dane) or 1.0
     w = []
     for i, d in enumerate(dane):
@@ -345,7 +351,7 @@ def rozrzut(punkty: list[dict], os_x: str = "", os_y: str = "",
     wiersz po wierszu; tutaj odstające widać w ułamku sekundy."""
     punkty = [p for p in punkty if p.get("x") is not None and p.get("y") is not None]
     if not punkty:
-        return '<div class="pusto">Brak danych.</div>'
+        return '<div class="pusto">No data.</div>'
     maks = max(max(p["x"] for p in punkty), max(p["y"] for p in punkty)) * 1.12 or 1.0
     szer = 1000
     px = lambda v: v / maks * szer                          # noqa: E731
@@ -363,7 +369,7 @@ def rozrzut(punkty: list[dict], os_x: str = "", os_y: str = "",
         f'<circle cx="{px(p["x"]):.1f}" cy="{py(p["y"]):.1f}" '
         f'r="{6 if p["y"] > p["x"] else 5}" fill="{SPADEK if p["y"] > p["x"] * 1.15 else AKCENT}" '
         f'fill-opacity=".82"><title>{e(str(p.get("etykieta") or ""))}: '
-        f'{p["x"]:.1f}% kapitału, {p["y"]:.1f}% ryzyka</title></circle>'
+        f'{p["x"]:.1f}% of capital, {p["y"]:.1f}% of risk</title></circle>'
         f'</g>' for i, p in enumerate(punkty))
 
     # Podpisujemy tylko odstające - reszta zlałaby się w plamę tekstu.
@@ -384,7 +390,7 @@ def rozrzut(punkty: list[dict], os_x: str = "", os_y: str = "",
     etyk = "".join(etyk)
 
     return (f'<div class="rz"><svg viewBox="0 0 {szer} {wys}" role="img" '
-            f'aria-label="{e(opis or "Rozrzut")}">{siatka}{prz}{kropki_}{etyk}</svg>'
+            f'aria-label="{e(opis or "Scatter")}">{siatka}{prz}{kropki_}{etyk}</svg>'
             f'<div class="rz-osie"><span>{e(os_x)}</span><span>{e(os_y)}</span></div></div>')
 
 
@@ -401,11 +407,11 @@ def pierscien(dane: list[tuple[str, float]], srodek_gora: str = "",
     bo cieńszych wycinków oko i tak nie rozróżni."""
     dane = [(n, abs(v)) for n, v in dane if v]
     if not dane:
-        return '<div class="pusto">Brak danych.</div>'
+        return '<div class="pusto">No data.</div>'
     dane.sort(key=lambda x: -x[1])
     if len(dane) > 8:
         reszta = sum(v for _, v in dane[7:])
-        dane = dane[:7] + [("Pozostałe", reszta)]
+        dane = dane[:7] + [("Other", reszta)]
     suma = sum(v for _, v in dane) or 1.0
 
     palet = PALETA
@@ -436,7 +442,7 @@ def pierscien(dane: list[tuple[str, float]], srodek_gora: str = "",
     return (f'<div class="pier-uklad"><div class="pier-obraz" '
             f'style="width:{rozmiar}px;height:{rozmiar}px">'
             f'<svg viewBox="0 0 {rozmiar} {rozmiar}" role="img" '
-            f'aria-label="Udziały: ' + e(", ".join(f"{n} {v/suma*100:.0f}%" for n, v in dane[:5])) + '">'
+            f'aria-label="Shares: ' + e(", ".join(f"{n} {v/suma*100:.0f}%" for n, v in dane[:5])) + '">'
             f'<circle cx="{rozmiar/2}" cy="{rozmiar/2}" r="{r:.1f}" fill="none" '
             f'stroke="{SIATKA}" stroke-width="{gr}"/>'
             + "".join(seg) + f'</svg>{srodek}</div>'
@@ -454,7 +460,7 @@ def slupki_poziome(dane: list[dict], klucz_nazwy: str = "nazwa",
     przy rozdrobnionym portfelu wszystkie paski są równie krótkie i nie da
     się porównać niczego z niczym."""
     if not dane:
-        return '<div class="pusto">Brak danych.</div>'
+        return '<div class="pusto">No data.</div>'
     dane = dane[:ile]
     naj = max(abs(d[klucz_wartosci]) for d in dane) or 1.0
     w = []
@@ -483,7 +489,7 @@ def mapa_ciepla(wiersze: list[dict], kolumny: list[str], wartosci: dict,
     Dzięki temu spokojny rok nie wygląda na bezbarwny, a burzliwy nie zlewa się
     w jedną plamę."""
     if not wartosci:
-        return '<div class="pusto">Brak danych.</div>'
+        return '<div class="pusto">No data.</div>'
     naj = max(abs(v) for v in wartosci.values() if v is not None) or 0.01
     naglowek = "".join(f'<th class="l">{e(k)}</th>' for k in kolumny)
     body = []
@@ -512,7 +518,7 @@ def slupki_pionowe(dane: list[tuple[str, float]], wys: int = 150,
     """Wartości dodatnie i ujemne wokół osi zera. Oś rysujemy zawsze, nawet
     gdy wszystko jest po jednej stronie - bez niej nie widać, gdzie jest zero."""
     if not dane:
-        return '<div class="pusto">Brak danych.</div>'
+        return '<div class="pusto">No data.</div>'
     naj = max(abs(v) for _, v in dane) or 1.0
     szer_s = max(100.0 / len(dane) - 1.6, 2.0)
     w = []
@@ -542,7 +548,7 @@ def kropki(ile_pelnych: int, ile_wszystkich: int, kolumny: int = 14,
         w.append(f'<i class="kropka{" pelna" if pelna else ""}" '
                  f'style="--op:{i * 14}ms;--kol:{kolor}"></i>')
     return (f'<div class="kropki" style="--kol:{kolumny}" role="img" '
-            f'aria-label="{ile_pelnych} z {ile_wszystkich}">{"".join(w)}</div>')
+            f'aria-label="{ile_pelnych} of {ile_wszystkich}">{"".join(w)}</div>')
 
 
 # --------------------------------------------------------------------------- #
@@ -561,7 +567,7 @@ def wskaznik(wartosc: float, minimum: float = 0.0, maksimum: float = 1.0,
     obwod = math.pi * r
     return (f'<div class="wsk" style="width:{rozmiar}px">'
             f'<svg viewBox="0 0 {rozmiar} {rozmiar/2 + 12}" role="img" '
-            f'aria-label="{e(etykieta)}: {u*100:.0f} procent">'
+            f'aria-label="{e(etykieta)}: {u*100:.0f} percent">'
             f'<path d="M 14 {rozmiar/2} A {r:.1f} {r:.1f} 0 0 1 {rozmiar-14} {rozmiar/2}" '
             f'fill="none" stroke="{SIATKA}" stroke-width="11" stroke-linecap="round"/>'
             f'<path class="wsk-luk" d="M 14 {rozmiar/2} A {r:.1f} {r:.1f} 0 0 1 '

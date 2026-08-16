@@ -8,8 +8,9 @@ Założenia, świadome i możliwe do obrony:
   * Dwa pełne motywy, jasny domyślny. Oba mają KOMPLET zmiennych - kolor
     zdefiniowany tylko w jednym znika w drugim i zostawia tekst jednego
     motywu na tle drugiego. Wybór zapamiętuje przeglądarka.
-  * Akcent oznacza „interaktywne albo wyróżnione". Zieleń i czerwień znaczą
-    „lepiej / gorzej". To dwa rozłączne języki i nigdy się nie mieszają -
+  * Chrom jest NEUTRALNY - szarości i czerń albo biel. Kolor niosą wyłącznie
+    dane, więc każda plama barwy na ekranie oznacza liczbę, a nie element
+    interfejsu. Zieleń i czerwień znaczą osobno „lepiej / gorzej";
     niebieski nigdy nie znaczy „dobrze".
   * Ruch jest krytycznie tłumiony, bez odbicia. Dane finansowe mają
     wyglądać na spokojne; sprężystość pasuje do przeciągania kart,
@@ -21,73 +22,80 @@ Założenia, świadome i możliwe do obrony:
 STYL = """
 /* Motyw jasny jest domyślny, ciemny wchodzi atrybutem na <html>. Oba mają
    PEŁNY komplet zmiennych - kolor zdefiniowany tylko w jednym motywie znika
-   w drugim i zostawia tekst jednego motywu na tle drugiego. */
+   w drugim i zostawia tekst jednego motywu na tle drugiego.
+
+   DWA JĘZYKI KOLORU, ROZŁĄCZNE.
+   Chrom - tło, karty, pasek boczny, przyciski, zaznaczenia - jest NEUTRALNY.
+   Kolor niosą wyłącznie dane: krzywe, słupki, wartości ze znakiem. Dzięki temu
+   plama koloru na ekranie zawsze znaczy „tu jest liczba", a nie „tu jest
+   element interfejsu". Odwrotnie - gdy interfejs też jest kolorowy - oko
+   przestaje odróżniać jedno od drugiego i wykres przestaje się wyróżniać. */
 :root {
-  --tlo:        #F6F4FC;
+  --tlo:        #F5F5F7;
   --tlo-2:      #FFFFFF;
   --plyta:      #FFFFFF;
-  --plyta-2:    #FBFAFE;
-  --linia:      rgba(24,20,44,.09);
-  --linia-2:    rgba(24,20,44,.16);
-  --tekst:      #1B1730;
-  --tekst-2:    #5C5578;
-  --tekst-3:    #8E88A6;
+  --plyta-2:    #F5F5F7;
+  --linia:      rgba(0,0,0,.08);
+  --linia-2:    rgba(0,0,0,.15);
+  --tekst:      #1D1D1F;
+  --tekst-2:    #6E6E73;
+  --tekst-3:    #8E8E93;
 
-  --akcent:     #7C5CFC;
-  --akcent-2:   #9E86FF;
-  --akcent-tlo: rgba(124,92,252,.10);
-  --wzrost:     #12A150;
-  --wzrost-tlo: rgba(18,161,80,.11);
-  --spadek:     #E5484D;
-  --spadek-tlo: rgba(229,72,77,.10);
-  --uwaga:      #C77700;
-  --uwaga-tlo:  rgba(199,119,0,.11);
+  /* chrom: neutralny, bez odcienia */
+  --akcent:     #1D1D1F;
+  --akcent-2:   #3A3A3C;
+  --akcent-tlo: rgba(0,0,0,.055);
+  /* dane: jedyne miejsce, gdzie wolno użyć barwy */
+  --dane:       #0071E3;
+  --dane-2:     #5AC8FA;
+  --wzrost:     #0E8345;
+  --wzrost-tlo: rgba(14,131,69,.10);
+  --spadek:     #D70015;
+  --spadek-tlo: rgba(215,0,21,.09);
+  --uwaga:      #B25000;
+  --uwaga-tlo:  rgba(178,80,0,.10);
 
-  --cien:       0 1px 2px rgba(24,20,44,.05), 0 12px 32px -18px rgba(24,20,44,.22);
-  --poswiata-1: rgba(160,110,255,.20);
-  --poswiata-2: rgba(110,140,255,.14);
-  --siatka:     rgba(24,20,44,.07);
+  --cien:       0 1px 2px rgba(0,0,0,.04), 0 10px 28px -20px rgba(0,0,0,.20);
+  --siatka:     rgba(0,0,0,.07);
 
   --e:          cubic-bezier(.22,.61,.36,1);
   --dotyk:      100ms;
 }
 
 html[data-motyw="ciemny"] {
-  --tlo:        #0C0A16;
-  --tlo-2:      #12101E;
-  --plyta:      #161424;
-  --plyta-2:    #1C1930;
-  --linia:      rgba(255,255,255,.08);
-  --linia-2:    rgba(255,255,255,.15);
-  --tekst:      #ECEAF6;
-  --tekst-2:    #A29CBE;
-  --tekst-3:    #6E6890;
+  --tlo:        #000000;
+  --tlo-2:      #1C1C1E;
+  --plyta:      #1C1C1E;
+  --plyta-2:    #2C2C2E;
+  --linia:      rgba(255,255,255,.10);
+  --linia-2:    rgba(255,255,255,.18);
+  --tekst:      #F5F5F7;
+  --tekst-2:    #98989D;
+  --tekst-3:    #7C7C81;
 
-  --akcent:     #9E86FF;
-  --akcent-2:   #B9A6FF;
-  --akcent-tlo: rgba(158,134,255,.15);
-  --wzrost:     #3DD68C;
-  --wzrost-tlo: rgba(61,214,140,.13);
-  --spadek:     #FF6369;
-  --spadek-tlo: rgba(255,99,105,.13);
-  --uwaga:      #E5B94E;
-  --uwaga-tlo:  rgba(229,185,78,.13);
+  --akcent:     #F5F5F7;
+  --akcent-2:   #D1D1D6;
+  --akcent-tlo: rgba(255,255,255,.09);
+  --dane:       #0A84FF;
+  --dane-2:     #64D2FF;
+  --wzrost:     #30D158;
+  --wzrost-tlo: rgba(48,209,88,.14);
+  --spadek:     #FF453A;
+  --spadek-tlo: rgba(255,69,58,.14);
+  --uwaga:      #FF9F0A;
+  --uwaga-tlo:  rgba(255,159,10,.14);
 
-  --cien:       0 1px 0 rgba(255,255,255,.03) inset, 0 20px 44px -30px rgba(0,0,0,.9);
-  --poswiata-1: rgba(124,92,252,.22);
-  --poswiata-2: rgba(60,100,255,.14);
-  --siatka:     rgba(255,255,255,.06);
+  --cien:       0 1px 0 rgba(255,255,255,.04) inset, 0 18px 40px -30px rgba(0,0,0,.9);
+  --siatka:     rgba(255,255,255,.08);
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background:
-    radial-gradient(1100px 620px at 12% -8%, var(--poswiata-1), transparent 62%),
-    radial-gradient(900px 520px at 88% 4%, var(--poswiata-2), transparent 58%),
-    var(--tlo);
-  background-attachment: fixed;
+  /* Płaskie tło, bez poświat. Gradient w tle konkurował z wykresami o uwagę
+     i nadawał całości odcień, którego nie ma w żadnej danej. */
+  background: var(--tlo);
   color: var(--tekst);
   font: 400 14.5px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -117,9 +125,8 @@ body {
 .marka b { font-size: 15px; letter-spacing: -.01em; font-weight: 600; }
 .marka i {
   width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--akcent), #B57BFF);
-  font-style: normal; font-weight: 700; font-size: 13px; color: #fff;
-  box-shadow: 0 6px 18px -6px color-mix(in oklab, var(--akcent) 70%, transparent);
+  background: var(--akcent);
+  font-style: normal; font-weight: 600; font-size: 13px; color: var(--plyta);
 }
 .marka small { display: block; color: var(--tekst-3); font-size: 10.5px; letter-spacing: .06em; }
 
@@ -136,8 +143,7 @@ body {
 .nawig button:hover { background: var(--akcent-tlo); color: var(--tekst); }
 .nawig button:active { transform: scale(.98); }
 .nawig button[aria-selected=true] {
-  background: var(--akcent-tlo); color: var(--akcent-2);
-  box-shadow: inset 2px 0 0 var(--akcent);
+  background: var(--akcent-tlo); color: var(--tekst); font-weight: 500;
 }
 .nawig button[aria-selected=true] svg { opacity: 1; }
 
@@ -240,8 +246,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .kom {
   padding: 12px 16px; border-radius: 11px; margin-bottom: 16px;
   font-size: 12.8px; line-height: 1.6;
-  background: var(--akcent-tlo); color: var(--akcent);
-  border: 1px solid color-mix(in oklab, var(--akcent) 26%, transparent);
+  background: var(--plyta); color: var(--tekst-2);
+  border: 1px solid var(--linia-2);
 }
 .kom.uw { background: var(--uwaga-tlo); color: var(--uwaga);
   border-color: color-mix(in oklab, var(--uwaga) 30%, transparent); }
@@ -250,14 +256,14 @@ tbody tr:last-child td { border-bottom: 0; }
 
 .btn {
   display: inline-flex; align-items: center; gap: 7px;
-  background: linear-gradient(180deg, var(--akcent), color-mix(in oklab, var(--akcent) 82%, #000));
-  color: #fff; border: 0; border-radius: 9px;
+  background: var(--akcent);
+  color: var(--plyta); border: 0; border-radius: 9px;
   padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 500;
   cursor: pointer; letter-spacing: -.004em;
-  box-shadow: 0 8px 20px -10px color-mix(in oklab, var(--akcent) 80%, transparent);
+  box-shadow: none;
   transition: transform var(--dotyk) var(--e), box-shadow 200ms var(--e);
 }
-.btn:hover { box-shadow: 0 12px 26px -10px color-mix(in oklab, var(--akcent) 90%, transparent); }
+.btn:hover { background: var(--akcent-2); }
 .btn:active { transform: scale(.97); }
 .btn.szary {
   background: rgba(255,255,255,.06); box-shadow: none;
@@ -308,7 +314,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .kropki { display: grid; grid-template-columns: repeat(var(--kol), 1fr); gap: 5px; }
 .kropka { width: 9px; height: 9px; border-radius: 50%; display: block;
           background: var(--linia); }
-.kropka.pelna { background: var(--kol, var(--akcent)); }
+.kropka.pelna { background: var(--kol, var(--dane)); }
 
 .wsk { position: relative; }
 .wsk svg { width: 100%; display: block; }
@@ -325,6 +331,33 @@ tbody tr:last-child td { border-bottom: 0; }
   background: color-mix(in oklab, var(--kol) calc(var(--moc) * 42%), transparent);
 }
 .hm-pusta { text-align: center; color: var(--tekst-3); }
+
+/* ------------------------------------------- zwijanie w tabeli pozycji */
+/* Strzałka jest przyciskiem, nie znakiem w komórce: dostaje ognisko
+   klawiatury, ma aria-expanded i czytnik ekranu mówi, co się rozwinie. */
+.zwin {
+  width: 20px; height: 20px; padding: 0; border: 0; background: 0; cursor: pointer;
+  display: grid; place-items: center; border-radius: 5px; color: var(--tekst-3);
+  transition: background var(--dotyk) var(--e), color var(--dotyk) var(--e);
+}
+.zwin::before {
+  content: ""; width: 5px; height: 5px; border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg) translate(-1px, -1px);
+  transition: transform 160ms var(--e);
+}
+.zwin[aria-expanded="true"]::before { transform: rotate(45deg) translate(-1px, -1px); }
+.zwin:hover { background: var(--akcent-tlo); color: var(--tekst); }
+.zwin:focus-visible { outline: 2px solid var(--dane); outline-offset: 1px; }
+
+.plak.licz {
+  background: var(--akcent-tlo); color: var(--tekst-2);
+  margin-left: 8px; text-transform: none; letter-spacing: .01em; font-weight: 500;
+}
+/* Transza jest wcięta i przygaszona - to szczegół pod spółką, nie osobna
+   pozycja. Bez wcięcia oba poziomy czytają się jako jedna płaska lista. */
+tr.lot td { font-size: 12.5px; background: var(--plyta-2); color: var(--tekst-2); }
+tr.lot td:nth-child(2) { padding-left: 34px; }
 
 /* ------------------------------------------------------------- histogram */
 .hg-pole {
@@ -405,8 +438,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .zakres button:hover { color: var(--tekst); }
 .zakres button:active { transform: scale(.96); }
 .zakres button[aria-pressed=true] {
-  background: var(--plyta); color: var(--akcent);
-  box-shadow: 0 1px 3px rgba(24,20,44,.10);
+  background: var(--plyta); color: var(--tekst); font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,.10);
 }
 
 .motyw {
@@ -433,7 +466,7 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .podp.widoczna { opacity: 1; }
 .podp .p-data { color: var(--tekst-3); font-size: 10.5px; letter-spacing: .02em; }
-.podp .p-wart { color: var(--akcent); font-weight: 700; font-size: 13px; margin-top: 1px; }
+.podp .p-wart { color: var(--tekst); font-weight: 600; font-size: 13px; margin-top: 1px; }
 .kursor-linia {
   position: absolute; top: 0; bottom: 22px; width: 1px;
   background: var(--linia-2); opacity: 0; pointer-events: none;
@@ -442,10 +475,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .kursor-linia.widoczna { opacity: 1; }
 .kursor-kropka {
   position: absolute; width: 9px; height: 9px; border-radius: 50%;
-  background: var(--akcent); border: 2px solid var(--plyta);
+  background: var(--dane); border: 2px solid var(--plyta);
   opacity: 0; pointer-events: none; transform: translate(-50%, -50%);
   transition: opacity 130ms var(--e);
-  box-shadow: 0 0 0 3px var(--akcent-tlo);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--dane) 22%, transparent);
 }
 .kursor-kropka.widoczna { opacity: 1; }
 
@@ -521,7 +554,7 @@ tbody tr:last-child td { border-bottom: 0; }
   }
   .nawig { flex-direction: row; overflow-x: auto; gap: 6px; }
   .nawig button { white-space: nowrap; }
-  .nawig button[aria-selected=true] { box-shadow: inset 0 -2px 0 var(--akcent); }
+  .nawig button[aria-selected=true] { box-shadow: inset 0 -2px 0 var(--tekst); }
   .tresc-gl { padding: 18px 14px 60px; }
   .pasek-w { grid-template-columns: 96px 1fr 54px; }
 }
@@ -571,7 +604,7 @@ SKRYPT_UI = """
     var ciemny = H.dataset.motyw === 'ciemny';
     H.dataset.motyw = ciemny ? 'jasny' : 'ciemny';
     try { localStorage.setItem('motyw', H.dataset.motyw); } catch(e) {}
-    b.setAttribute('aria-label', ciemny ? 'Włącz motyw ciemny' : 'Włącz motyw jasny');
+    b.setAttribute('aria-label', ciemny ? 'Switch to dark theme' : 'Switch to light theme');
   });
 
   // ---- wykres przebiegu: podpowiedź i zakres --------------------------
@@ -653,7 +686,7 @@ SKRYPT_UI = """
         var y = r.height - ((p.v - lo) / ((hi - lo) || 1)) * r.height;
 
         pData.textContent = p.d;
-        pWart.textContent = jedn + p.v.toLocaleString('pl-PL',
+        pWart.textContent = jedn + p.v.toLocaleString('en-US',
           { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         podp.style.transform = 'translate(' + x + 'px,' + (y - 14) + 'px) translate(-50%,-100%)';
         linia.style.transform = 'translateX(' + x + 'px)';

@@ -25,102 +25,102 @@ SEKTOR, TEMAT, KLASA, KRAJ = "sektor", "temat", "klasa", "kraj"
 # do „Nieprzypisane" i widać je w panelu jako zadanie do zrobienia.
 MAPA: dict[str, dict[str, object]] = {
     # półprzewodniki i sprzęt
-    "NVDA": {SEKTOR: "Technologia", TEMAT: ["AI / półprzewodniki"]},
-    "AMD":  {SEKTOR: "Technologia", TEMAT: ["AI / półprzewodniki"]},
-    "INTC": {SEKTOR: "Technologia", TEMAT: ["AI / półprzewodniki"]},
-    "MU":   {SEKTOR: "Technologia", TEMAT: ["AI / półprzewodniki"]},
-    "TSM":  {SEKTOR: "Technologia", TEMAT: ["AI / półprzewodniki"], KRAJ: "Tajwan"},
-    "ASML": {SEKTOR: "Technologia", TEMAT: ["AI / półprzewodniki"], KRAJ: "Holandia"},
-    "AVGO": {SEKTOR: "Technologia", TEMAT: ["AI / półprzewodniki"]},
-    "QCOM": {SEKTOR: "Technologia", TEMAT: ["AI / półprzewodniki"]},
-    "ARM":  {SEKTOR: "Technologia", TEMAT: ["AI / półprzewodniki"]},
-    "MBLY": {SEKTOR: "Technologia", TEMAT: ["AI / półprzewodniki", "Robotyka"]},
+    "NVDA": {SEKTOR: "Technology", TEMAT: ["AI / semiconductors"]},
+    "AMD":  {SEKTOR: "Technology", TEMAT: ["AI / semiconductors"]},
+    "INTC": {SEKTOR: "Technology", TEMAT: ["AI / semiconductors"]},
+    "MU":   {SEKTOR: "Technology", TEMAT: ["AI / semiconductors"]},
+    "TSM":  {SEKTOR: "Technology", TEMAT: ["AI / semiconductors"], KRAJ: "Taiwan"},
+    "ASML": {SEKTOR: "Technology", TEMAT: ["AI / semiconductors"], KRAJ: "Netherlands"},
+    "AVGO": {SEKTOR: "Technology", TEMAT: ["AI / semiconductors"]},
+    "QCOM": {SEKTOR: "Technology", TEMAT: ["AI / semiconductors"]},
+    "ARM":  {SEKTOR: "Technology", TEMAT: ["AI / semiconductors"]},
+    "MBLY": {SEKTOR: "Technology", TEMAT: ["AI / semiconductors", "Robotics"]},
     # oprogramowanie i platformy
-    "MSFT": {SEKTOR: "Technologia", TEMAT: ["Oprogramowanie", "AI / półprzewodniki"]},
-    "GOOGL": {SEKTOR: "Technologia", TEMAT: ["Oprogramowanie", "AI / półprzewodniki"]},
-    "GOOG": {SEKTOR: "Technologia", TEMAT: ["Oprogramowanie", "AI / półprzewodniki"]},
-    "AMZN": {SEKTOR: "Konsument cykliczny", TEMAT: ["Oprogramowanie"]},
-    "META": {SEKTOR: "Technologia", TEMAT: ["Oprogramowanie", "AI / półprzewodniki"]},
-    "AAPL": {SEKTOR: "Technologia", TEMAT: ["Oprogramowanie"]},
-    "PLTR": {SEKTOR: "Technologia", TEMAT: ["Oprogramowanie", "AI / półprzewodniki"]},
-    "CRWD": {SEKTOR: "Technologia", TEMAT: ["Oprogramowanie"]},
-    "NOW":  {SEKTOR: "Technologia", TEMAT: ["Oprogramowanie"]},
+    "MSFT": {SEKTOR: "Technology", TEMAT: ["Software", "AI / semiconductors"]},
+    "GOOGL": {SEKTOR: "Technology", TEMAT: ["Software", "AI / semiconductors"]},
+    "GOOG": {SEKTOR: "Technology", TEMAT: ["Software", "AI / semiconductors"]},
+    "AMZN": {SEKTOR: "Consumer cyclical", TEMAT: ["Software"]},
+    "META": {SEKTOR: "Technology", TEMAT: ["Software", "AI / semiconductors"]},
+    "AAPL": {SEKTOR: "Technology", TEMAT: ["Software"]},
+    "PLTR": {SEKTOR: "Technology", TEMAT: ["Software", "AI / semiconductors"]},
+    "CRWD": {SEKTOR: "Technology", TEMAT: ["Software"]},
+    "NOW":  {SEKTOR: "Technology", TEMAT: ["Software"]},
     # kosmos, obronność, robotyka
-    "LUNR": {SEKTOR: "Przemysł", TEMAT: ["Kosmos", "Technologie wschodzące"]},
-    "RKLB": {SEKTOR: "Przemysł", TEMAT: ["Kosmos", "Technologie wschodzące"]},
-    "ASTS": {SEKTOR: "Telekomunikacja", TEMAT: ["Kosmos", "Technologie wschodzące"]},
-    "ACHR": {SEKTOR: "Przemysł", TEMAT: ["Technologie wschodzące"]},
-    "JOBY": {SEKTOR: "Przemysł", TEMAT: ["Technologie wschodzące"]},
-    "TSLA": {SEKTOR: "Konsument cykliczny", TEMAT: ["Robotyka", "Technologie wschodzące"]},
+    "LUNR": {SEKTOR: "Industrials", TEMAT: ["Space", "Emerging tech"]},
+    "RKLB": {SEKTOR: "Industrials", TEMAT: ["Space", "Emerging tech"]},
+    "ASTS": {SEKTOR: "Telecom", TEMAT: ["Space", "Emerging tech"]},
+    "ACHR": {SEKTOR: "Industrials", TEMAT: ["Emerging tech"]},
+    "JOBY": {SEKTOR: "Industrials", TEMAT: ["Emerging tech"]},
+    "TSLA": {SEKTOR: "Consumer cyclical", TEMAT: ["Robotics", "Emerging tech"]},
     # energia jądrowa i uran
-    "OKLO": {SEKTOR: "Energetyka", TEMAT: ["Energia jądrowa"]},
-    "SMR":  {SEKTOR: "Energetyka", TEMAT: ["Energia jądrowa"]},
-    "LEU":  {SEKTOR: "Energetyka", TEMAT: ["Energia jądrowa"]},
-    "CCJ":  {SEKTOR: "Energetyka", TEMAT: ["Energia jądrowa"], KRAJ: "Kanada"},
-    "NLR":  {SEKTOR: "Energetyka", TEMAT: ["Energia jądrowa"], KLASA: "ETF"},
-    "UEC":  {SEKTOR: "Energetyka", TEMAT: ["Energia jądrowa"]},
+    "OKLO": {SEKTOR: "Energy", TEMAT: ["Nuclear energy"]},
+    "SMR":  {SEKTOR: "Energy", TEMAT: ["Nuclear energy"]},
+    "LEU":  {SEKTOR: "Energy", TEMAT: ["Nuclear energy"]},
+    "CCJ":  {SEKTOR: "Energy", TEMAT: ["Nuclear energy"], KRAJ: "Canada"},
+    "NLR":  {SEKTOR: "Energy", TEMAT: ["Nuclear energy"], KLASA: "ETF"},
+    "UEC":  {SEKTOR: "Energy", TEMAT: ["Nuclear energy"]},
     # metale szlachetne i kopalnie
-    "GLD":  {SEKTOR: "Surowce", TEMAT: ["Złoto"], KLASA: "ETF"},
-    "SLV":  {SEKTOR: "Surowce", TEMAT: ["Srebro"], KLASA: "ETF"},
-    "SLVP": {SEKTOR: "Surowce", TEMAT: ["Srebro", "Kopalnie srebra"], KLASA: "ETF"},
-    "GDX":  {SEKTOR: "Surowce", TEMAT: ["Kopalnie złota"], KLASA: "ETF"},
-    "NEM":  {SEKTOR: "Surowce", TEMAT: ["Kopalnie złota"]},
-    "AEM":  {SEKTOR: "Surowce", TEMAT: ["Kopalnie złota"], KRAJ: "Kanada"},
-    "PAAS": {SEKTOR: "Surowce", TEMAT: ["Kopalnie srebra"], KRAJ: "Kanada"},
-    "HL":   {SEKTOR: "Surowce", TEMAT: ["Kopalnie srebra"]},
-    "AG":   {SEKTOR: "Surowce", TEMAT: ["Kopalnie srebra"], KRAJ: "Kanada"},
-    "WPM":  {SEKTOR: "Surowce", TEMAT: ["Kopalnie złota", "Kopalnie srebra"], KRAJ: "Kanada"},
-    "ANGX": {SEKTOR: "Surowce", TEMAT: ["Kopalnie złota"]},
+    "GLD":  {SEKTOR: "Commodities", TEMAT: ["Gold"], KLASA: "ETF"},
+    "SLV":  {SEKTOR: "Commodities", TEMAT: ["Silver"], KLASA: "ETF"},
+    "SLVP": {SEKTOR: "Commodities", TEMAT: ["Silver", "Silver miners"], KLASA: "ETF"},
+    "GDX":  {SEKTOR: "Commodities", TEMAT: ["Gold miners"], KLASA: "ETF"},
+    "NEM":  {SEKTOR: "Commodities", TEMAT: ["Gold miners"]},
+    "AEM":  {SEKTOR: "Commodities", TEMAT: ["Gold miners"], KRAJ: "Canada"},
+    "PAAS": {SEKTOR: "Commodities", TEMAT: ["Silver miners"], KRAJ: "Canada"},
+    "HL":   {SEKTOR: "Commodities", TEMAT: ["Silver miners"]},
+    "AG":   {SEKTOR: "Commodities", TEMAT: ["Silver miners"], KRAJ: "Canada"},
+    "WPM":  {SEKTOR: "Commodities", TEMAT: ["Gold miners", "Silver miners"], KRAJ: "Canada"},
+    "ANGX": {SEKTOR: "Commodities", TEMAT: ["Gold miners"]},
     # energia konwencjonalna i przemysł
-    "XLE":  {SEKTOR: "Energetyka", TEMAT: ["Energia"], KLASA: "ETF"},
-    "OIH":  {SEKTOR: "Energetyka", TEMAT: ["Energia"], KLASA: "ETF"},
-    "XOM":  {SEKTOR: "Energetyka", TEMAT: ["Energia"]},
-    "CVX":  {SEKTOR: "Energetyka", TEMAT: ["Energia"]},
-    "CAT":  {SEKTOR: "Przemysł", TEMAT: ["Przemysł"]},
-    "DE":   {SEKTOR: "Przemysł", TEMAT: ["Przemysł"]},
+    "XLE":  {SEKTOR: "Energy", TEMAT: ["Energy"], KLASA: "ETF"},
+    "OIH":  {SEKTOR: "Energy", TEMAT: ["Energy"], KLASA: "ETF"},
+    "XOM":  {SEKTOR: "Energy", TEMAT: ["Energy"]},
+    "CVX":  {SEKTOR: "Energy", TEMAT: ["Energy"]},
+    "CAT":  {SEKTOR: "Industrials", TEMAT: ["Industrials"]},
+    "DE":   {SEKTOR: "Industrials", TEMAT: ["Industrials"]},
     # szerokie i lewarowane fundusze
-    "SPY":  {SEKTOR: "Szeroki rynek", TEMAT: ["Szeroki rynek"], KLASA: "ETF"},
-    "QQQ":  {SEKTOR: "Szeroki rynek", TEMAT: ["Szeroki rynek"], KLASA: "ETF"},
-    "SPXS": {SEKTOR: "Szeroki rynek", TEMAT: ["Zabezpieczenie"], KLASA: "ETF"},
-    "SQQQ": {SEKTOR: "Szeroki rynek", TEMAT: ["Zabezpieczenie"], KLASA: "ETF"},
-    "SDS":  {SEKTOR: "Szeroki rynek", TEMAT: ["Zabezpieczenie"], KLASA: "ETF"},
-    "SCHD": {SEKTOR: "Szeroki rynek", TEMAT: ["Dywidenda"], KLASA: "ETF"},
-    "KWEB": {SEKTOR: "Technologia", TEMAT: ["Chiny"], KLASA: "ETF", KRAJ: "Chiny"},
-    "UFO":  {SEKTOR: "Przemysł", TEMAT: ["Kosmos"], KLASA: "ETF"},
-    "SPCX": {SEKTOR: "Przemysł", TEMAT: ["Kosmos"], KLASA: "ETF"},
-    "AVAV": {SEKTOR: "Przemysł", TEMAT: ["Obronność", "Technologie wschodzące"]},
-    "NNE":  {SEKTOR: "Energetyka", TEMAT: ["Energia jądrowa"]},
-    "MELI": {SEKTOR: "Konsument cykliczny", TEMAT: ["Oprogramowanie"], KRAJ: "Argentyna"},
-    "ZETA": {SEKTOR: "Technologia", TEMAT: ["Oprogramowanie"]},
-    "RPD":  {SEKTOR: "Technologia", TEMAT: ["Oprogramowanie"]},
+    "SPY":  {SEKTOR: "Broad market", TEMAT: ["Broad market"], KLASA: "ETF"},
+    "QQQ":  {SEKTOR: "Broad market", TEMAT: ["Broad market"], KLASA: "ETF"},
+    "SPXS": {SEKTOR: "Broad market", TEMAT: ["Hedge"], KLASA: "ETF"},
+    "SQQQ": {SEKTOR: "Broad market", TEMAT: ["Hedge"], KLASA: "ETF"},
+    "SDS":  {SEKTOR: "Broad market", TEMAT: ["Hedge"], KLASA: "ETF"},
+    "SCHD": {SEKTOR: "Broad market", TEMAT: ["Dividend"], KLASA: "ETF"},
+    "KWEB": {SEKTOR: "Technology", TEMAT: ["China"], KLASA: "ETF", KRAJ: "China"},
+    "UFO":  {SEKTOR: "Industrials", TEMAT: ["Space"], KLASA: "ETF"},
+    "SPCX": {SEKTOR: "Industrials", TEMAT: ["Space"], KLASA: "ETF"},
+    "AVAV": {SEKTOR: "Industrials", TEMAT: ["Defence", "Emerging tech"]},
+    "NNE":  {SEKTOR: "Energy", TEMAT: ["Nuclear energy"]},
+    "MELI": {SEKTOR: "Consumer cyclical", TEMAT: ["Software"], KRAJ: "Argentina"},
+    "ZETA": {SEKTOR: "Technology", TEMAT: ["Software"]},
+    "RPD":  {SEKTOR: "Technology", TEMAT: ["Software"]},
 }
 
 # Koszyk z arkusza wzorcowego → temat u nas. Arkusz nazywa rzeczy po swojemu,
 # a chcemy jednego słownika w całym panelu.
 KOSZYK_NA_TEMAT = {
-    "gold": "Złoto", "silver": "Srebro", "gold miners": "Kopalnie złota",
-    "silver miners": "Kopalnie srebra", "energy": "Energia",
-    "nuclear": "Energia jądrowa", "tech": "AI / półprzewodniki",
-    "technology": "AI / półprzewodniki", "software": "Oprogramowanie",
-    "space": "Kosmos", "industrials": "Przemysł", "materials": "Surowce",
-    "crypto": "Kryptowaluty", "cash": "Gotówka", "defensive": "Defensywne",
+    "gold": "Gold", "silver": "Silver", "gold miners": "Gold miners",
+    "silver miners": "Silver miners", "energy": "Energy",
+    "nuclear": "Nuclear energy", "tech": "AI / semiconductors",
+    "technology": "AI / semiconductors", "software": "Software",
+    "space": "Space", "industrials": "Industrials", "materials": "Commodities",
+    "crypto": "Crypto", "cash": "Cash", "defensive": "Defensive",
 }
 
 
 # Temat → sektor. Arkusz wzorcowy przypisuje tematy, nie sektory, więc bez
 # tego przełożenia 48 spółek miałoby temat, a sektor „Nieprzypisane".
 TEMAT_NA_SEKTOR = {
-    "AI / półprzewodniki": "Technologia", "Oprogramowanie": "Technologia",
-    "Robotyka": "Technologia", "Chiny": "Technologia",
-    "Kosmos": "Przemysł", "Przemysł": "Przemysł", "Obronność": "Przemysł",
-    "Technologie wschodzące": "Przemysł",
-    "Energia jądrowa": "Energetyka", "Energia": "Energetyka",
-    "Złoto": "Surowce", "Srebro": "Surowce", "Kopalnie złota": "Surowce",
-    "Kopalnie srebra": "Surowce", "Surowce": "Surowce",
-    "Kryptowaluty": "Aktywa cyfrowe",
-    "Szeroki rynek": "Szeroki rynek", "Zabezpieczenie": "Szeroki rynek",
-    "Dywidenda": "Szeroki rynek", "Defensywne": "Defensywne",
-    "Gotówka": "Gotówka",
+    "AI / semiconductors": "Technology", "Software": "Technology",
+    "Robotics": "Technology", "China": "Technology",
+    "Space": "Industrials", "Industrials": "Industrials", "Defence": "Industrials",
+    "Emerging tech": "Industrials",
+    "Nuclear energy": "Energy", "Energy": "Energy",
+    "Gold": "Commodities", "Silver": "Commodities", "Gold miners": "Commodities",
+    "Silver miners": "Commodities", "Commodities": "Commodities",
+    "Crypto": "Digital assets",
+    "Broad market": "Broad market", "Hedge": "Broad market",
+    "Dividend": "Broad market", "Defensive": "Defensive",
+    "Cash": "Cash",
 }
 
 
@@ -131,18 +131,18 @@ def _temat_z_koszyka(nazwa: str) -> str:
     for wzor in sorted(KOSZYK_NA_TEMAT, key=len, reverse=True):
         if wzor in k:
             return KOSZYK_NA_TEMAT[wzor]
-    return (nazwa or "").strip() or "Nieprzypisane"
+    return (nazwa or "").strip() or "Unassigned"
 
 
 def klasa_instrumentu(p: dict) -> str:
     """Klasa aktywów z samego raportu - to jedyny wymiar, który Flex zna."""
     k = (p.get("klasa") or "").upper()
     if k in ("OPT", "FOP"):
-        return "Opcje"
+        return "Options"
     if k == "STK":
-        return "Akcje"
+        return "Equity"
     if k in ("CASH", "FX"):
-        return "Gotówka"
+        return "Cash"
     return k or "Inne"
 
 
@@ -173,7 +173,7 @@ def przypisz(pozycje: list[dict], przypisanie_wzorca: dict[str, str] | None = No
 
         if temat_wzorca:
             store.zapisz_klasyfikacje(s, TEMAT, _temat_z_koszyka(temat_wzorca),
-                                      zrodlo="arkusz wzorcowy")
+                                      zrodlo="model sheet")
             z_wzorca += 1
         elif wpis and wpis.get(TEMAT):
             tematy = wpis[TEMAT]
@@ -185,7 +185,7 @@ def przypisz(pozycje: list[dict], przypisanie_wzorca: dict[str, str] | None = No
                                       zrodlo="mapa")
             z_mapy += 1
         else:
-            store.zapisz_klasyfikacje(s, TEMAT, "Nieprzypisane", zrodlo="brak")
+            store.zapisz_klasyfikacje(s, TEMAT, "Unassigned", zrodlo="none")
             bez += 1
             if klucz not in braki:
                 braki.append(klucz)
@@ -195,9 +195,9 @@ def przypisz(pozycje: list[dict], przypisanie_wzorca: dict[str, str] | None = No
         else:
             # sektor z tematu - nie zgadujemy, tylko przekładamy znane przypisanie
             t = _temat_z_koszyka(temat_wzorca) if temat_wzorca else None
-            sekt = TEMAT_NA_SEKTOR.get(t or "", "Nieprzypisane")
+            sekt = TEMAT_NA_SEKTOR.get(t or "", "Unassigned")
             store.zapisz_klasyfikacje(s, SEKTOR, sekt,
-                                      zrodlo="z tematu" if sekt != "Nieprzypisane" else "brak")
+                                      zrodlo="from theme" if sekt != "Unassigned" else "none")
         if wpis and wpis.get(KRAJ):
             store.zapisz_klasyfikacje(s, KRAJ, str(wpis[KRAJ]), zrodlo="mapa")
         else:
@@ -220,7 +220,7 @@ def udzialy(pozycje: list[dict], wymiar: str) -> list[dict]:
         if not s:
             continue
         calosc += w
-        wpisy = klas.get(s) or [{"wartosc": "Nieprzypisane", "waga": 1.0}]
+        wpisy = klas.get(s) or [{"wartosc": "Unassigned", "waga": 1.0}]
         for k in wpisy:
             suma[k["wartosc"]] = suma.get(k["wartosc"], 0.0) + w * float(k.get("waga") or 1.0)
     return sorted(

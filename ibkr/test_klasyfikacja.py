@@ -38,7 +38,7 @@ def test_reczna_decyzja_nie_daje_sie_nadpisac():
                                      recznie=True, zrodlo="ja")
     # automat próbuje przypisać coś innego - ma zostać odrzucony
     assert store.zapisz_klasyfikacje("NVDA", klasyfikacja.TEMAT,
-                                     "AI / półprzewodniki", zrodlo="mapa") is False
+                                     "AI / semiconductors", zrodlo="mapa") is False
     wpisy = store.klasyfikacja(klasyfikacja.TEMAT)["NVDA"]
     assert [w["wartosc"] for w in wpisy] == ["Mój własny temat"]
     # pełny przebieg klasyfikacji też musi to uszanować
@@ -53,8 +53,8 @@ def test_arkusz_wzorcowy_ma_pierwszenstwo_przed_mapa():
     _czysto()
     klasyfikacja.przypisz([POZYCJE[0]], {"NVDA": "Gold Miners"})
     wpisy = store.klasyfikacja(klasyfikacja.TEMAT)["NVDA"]
-    assert [w["wartosc"] for w in wpisy] == ["Kopalnie złota"]
-    assert wpisy[0]["zrodlo"] == "arkusz wzorcowy"
+    assert [w["wartosc"] for w in wpisy] == ["Gold miners"]
+    assert wpisy[0]["zrodlo"] == "model sheet"
 
 
 def test_wielotematycznosc_dzieli_wage_po_rowno():
@@ -75,9 +75,9 @@ def test_opcja_dziedziczy_klasyfikacje_po_bazowym():
     _czysto()
     klasyfikacja.przypisz([POZYCJE[3]], {"LUNR": "Space"})
     wpisy = store.klasyfikacja(klasyfikacja.TEMAT)["LUNR  260918C00021000"]
-    assert [w["wartosc"] for w in wpisy] == ["Kosmos"]
+    assert [w["wartosc"] for w in wpisy] == ["Space"]
     klasy = store.klasyfikacja(klasyfikacja.KLASA)["LUNR  260918C00021000"]
-    assert [k["wartosc"] for k in klasy] == ["Opcje"]
+    assert [k["wartosc"] for k in klasy] == ["Options"]
 
 
 def test_nieznana_spolka_jest_jawnie_nieprzypisana():
@@ -87,7 +87,7 @@ def test_nieznana_spolka_jest_jawnie_nieprzypisana():
     assert w["bez_przypisania"] == 1
     assert "NIEZNANY" in w["braki"]
     assert [x["wartosc"] for x in store.klasyfikacja(klasyfikacja.TEMAT)["NIEZNANY"]] \
-        == ["Nieprzypisane"]
+        == ["Unassigned"]
 
 
 def test_sektor_wyprowadzony_z_tematu():
@@ -97,10 +97,10 @@ def test_sektor_wyprowadzony_z_tematu():
     klasyfikacja.przypisz([{"symbol": "XYZ", "klasa": "STK", "wartosc": 100.0}],
                           {"XYZ": "Nuclear"})
     assert [w["wartosc"] for w in store.klasyfikacja(klasyfikacja.TEMAT)["XYZ"]] \
-        == ["Energia jądrowa"]
+        == ["Nuclear energy"]
     sekt = store.klasyfikacja(klasyfikacja.SEKTOR)["XYZ"]
-    assert [w["wartosc"] for w in sekt] == ["Energetyka"]
-    assert sekt[0]["zrodlo"] == "z tematu"
+    assert [w["wartosc"] for w in sekt] == ["Energy"]
+    assert sekt[0]["zrodlo"] == "from theme"
 
 
 def test_udzialy_sumuja_sie_do_portfela():

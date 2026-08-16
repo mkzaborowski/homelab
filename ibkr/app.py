@@ -60,7 +60,7 @@ def login_post():
         session["ok"] = True
         session.permanent = True
         return redirect(url_for("glowna"))
-    return widok.logowanie("Nieprawidłowe hasło"), 401
+    return widok.logowanie("Wrong password"), 401
 
 
 @app.get("/wyloguj")
@@ -178,7 +178,7 @@ def glowna(komunikat="", blad=False):
             por = wzorzec.porownaj(wzorzec.parsuj(wzorzec.pobierz()), pods)
         except Exception as e:                                  # noqa: BLE001
             # brak wzorca nie może wywalić całego panelu
-            app.logger.warning("Nie udało się pobrać wzorca: %s", e)
+            app.logger.warning("Could not fetch the model sheet: %s", e)
         try:
             z = store.zrzut()
             kursy = notowania.pobierz(notowania.symbole_ze_zrzutu(z["dane"]))
@@ -186,11 +186,11 @@ def glowna(komunikat="", blad=False):
                 z["dane"], store.transakcje(), store.zakres_rejestru(), kursy=kursy,
                 zdarzenia=store.zdarzenia_opcji())
         except Exception as e:                                  # noqa: BLE001
-            app.logger.warning("Nie udało się policzyć opcji: %s", e)
+            app.logger.warning("Could not compute options: %s", e)
         try:
             analityka = _analityka(hist, pods)
         except Exception as e:                                  # noqa: BLE001
-            app.logger.warning("Nie udało się policzyć analityki: %s", e)
+            app.logger.warning("Could not compute analytics: %s", e)
     return widok.panel(pods, hist, store.koszyki(), store.ostatnie_przebiegi(),
                        komunikat=komunikat, blad=blad, sheets_ok=sheets.skonfigurowane(),
                        okresy=statystyki.okresy(
@@ -231,26 +231,26 @@ def meta():
         zapisane += 1
 
     if zle_liczby:
-        return glowna(komunikat="Pominięto - stop musi być liczbą: " + ", ".join(zle_liczby[:5]),
+        return glowna(komunikat="Skipped - the stop must be a number: " + ", ".join(zle_liczby[:5]),
                       blad=True)
-    dopisek = f", w tym {len(zaznaczone)} do „{masowy}”" if masowy and zaznaczone else ""
-    return glowna(komunikat=f"Zapisano {zapisane} tickerów{dopisek}")
+    dopisek = f", including {len(zaznaczone)} into “{masowy}”" if masowy and zaznaczone else ""
+    return glowna(komunikat=f"Saved {zapisane} tickers{dopisek}")
 
 
 @app.get("/pobierz.xlsx")
 @chronione
 def pobierz():
     if not zadanie.PLIK_XLSX.exists():
-        return glowna(komunikat="Brak pliku - najpierw pobierz dane", blad=True)
+        return glowna(komunikat="No file yet - fetch the data first", blad=True)
     return send_file(zadanie.PLIK_XLSX, as_attachment=True,
                      download_name="portfel.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 def opis_harmonogramu() -> str:
-    czesci = [f"pobranie co {CO_MINUT} min"]
+    czesci = [f"fetch every {CO_MINUT} min"]
     if notowania.skonfigurowane():
-        czesci.append(f"progi odkupu co {ALERTY_CO_MINUT} min")
+        czesci.append(f"buyback check every {ALERTY_CO_MINUT} min")
     czesci.append(notowania.opis())
     return " · ".join(czesci)
 

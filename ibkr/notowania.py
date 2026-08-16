@@ -33,9 +33,9 @@ def skonfigurowane() -> bool:
 
 def opis() -> str:
     if not TOKEN:
-        return "brak TRADIER_TOKEN - ceny wyłącznie z wyciągu IBKR"
-    rodzaj = "opóźnione (piaskownica)" if "sandbox" in BAZA else "na żywo"
-    return f"Tradier, notowania {rodzaj}"
+        return "no TRADIER_TOKEN - prices from the IBKR statement only"
+    rodzaj = "delayed (sandbox)" if "sandbox" in BAZA else "live"
+    return f"Tradier quotes, {rodzaj}"
 
 
 def symbol_opcji(s: str) -> str:
