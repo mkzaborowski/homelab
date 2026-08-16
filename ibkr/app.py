@@ -187,7 +187,9 @@ def glowna(komunikat="", blad=False):
             app.logger.warning("Nie udało się policzyć analityki: %s", e)
     return widok.panel(pods, hist, store.koszyki(), store.ostatnie_przebiegi(),
                        komunikat=komunikat, blad=blad, sheets_ok=sheets.skonfigurowane(),
-                       okresy=statystyki.okresy(hist, pods["nav"]) if pods else {},
+                       okresy=statystyki.okresy(
+                           hist, pods["nav"],
+                           zwrot.przeplywy_z_operacji(store.operacje())) if pods else {},
                        harmonogram=opis_harmonogramu(), porownanie=por,
                        analiza_opcji=analiza_opcji, analityka=analityka)
 

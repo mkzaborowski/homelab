@@ -384,7 +384,7 @@ SKRYPT = r"""
 def logowanie(blad: str = "") -> str:
     return f"""<!doctype html><html lang="pl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>Portfel — logowanie</title><style>{style.STYL}\n{STYL_DODATKOWY}</style></head>
+<title>Portfel — logowanie</title><style>{STYL_DODATKOWY}\n{style.STYL}</style></head>
 <body style="display:flex;align-items:center;justify-content:center;min-height:100vh">
 <form method="post" action="/login" class="karta" style="max-width:340px;width:100%;margin:0">
   <h2>Panel portfela</h2>
@@ -790,7 +790,7 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
     return f"""<!doctype html><html lang="pl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <meta name="color-scheme" content="dark">
-<title>Portfel IBKR</title><style>{style.STYL}\n{STYL_DODATKOWY}</style></head><body>
+<title>Portfel IBKR</title><style>{STYL_DODATKOWY}\n{style.STYL}</style></head><body>
 <div class="szkielet">
 {nav_szkielet}
 <main class="tresc-gl">

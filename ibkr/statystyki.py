@@ -243,7 +243,8 @@ def podsumowanie(zrzut: dict, meta: dict, poprzedni: dict | None) -> dict:
     }
 
 
-def okresy(hist: list[dict], nav_biezacy: float) -> dict:
+def okresy(hist: list[dict], nav_biezacy: float,
+           przeplywy: dict[str, float] | None = None) -> dict:
     """Zmiana NAV za okresy kalendarzowe.
 
     Okres liczymy TYLKO wtedy, gdy historia faktycznie sięga jego początku.
@@ -276,8 +277,19 @@ def okresy(hist: list[dict], nav_biezacy: float) -> dict:
         baza = next((h for h in hist if (_data(h["data"]) or dzis) >= od), None) or hist[0]
         start = baza["nav"] or 0.0
         if start and baza["data"] != hist[-1]["data"]:
-            wynik[etykieta] = {"dostepny": True,
-                               "proc": (nav_biezacy - start) / start * 100,
+            # Zwrot za okres liczymy jak TWR, z korektą o wpłaty i wypłaty.
+            # Sama różnica NAV dawała dla tego rachunku +3428% za rok, bo
+            # w tym czasie wpłynęło 596 tys. Panel pokazywałby wtedy dwie
+            # różne liczby dla tej samej wielkości: tutaj i w zakładce Wynik.
+            wycinek = [h for h in hist if h["data"] >= baza["data"]]
+            proc = None
+            if przeplywy is not None:
+                import zwrot as _zwrot
+                t = _zwrot.twr(wycinek, przeplywy)
+                proc = t * 100 if t is not None else None
+            if proc is None:
+                proc = (nav_biezacy - start) / start * 100
+            wynik[etykieta] = {"dostepny": True, "proc": proc,
                                "kwota": nav_biezacy - start, "od": baza["data"]}
     return wynik
 
