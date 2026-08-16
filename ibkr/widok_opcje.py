@@ -31,12 +31,12 @@ def _licz(v, po=0):
     return f"{v:,.{po}f}".replace(",", " ")
 
 
-def _odm(n: int, jeden: str, kilka: str, wiele: str) -> str:
-    if n == 1:
-        return jeden
-    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
-        return kilka
-    return wiele
+def _odm(n: int, jeden: str, mnogie: str) -> str:
+    """Liczba mnoga po angielsku. Kopia tej z widok.py - widok.py importuje ten
+    plik, więc import w drugą stronę zamknąłby cykl. To ta duplikacja sprawiła,
+    że przejście na angielski naprawiło jedną kopię i zostawiło drugą z trzema
+    argumentami; stąd dymiący test renderujący WSZYSTKIE zakładki niżej."""
+    return jeden if n == 1 else mnogie
 
 
 def _kafel(etykieta: str, wartosc: str, klasa: str = "", pod: str = "") -> str:
