@@ -329,7 +329,9 @@ tbody tr:last-child td { border-bottom: 0; }
 /* ------------------------------------------------------------- histogram */
 .hg-pole {
   position: relative; display: flex; align-items: flex-end; gap: 0;
-  --szer: 3%; padding-top: 18px;
+  /* Miejsce u góry na schodkowane podpisy progów - trzy zmieszczą się bez
+     wchodzenia na słupki. */
+  --szer: 3%; padding-top: 44px;
 }
 .hg-k {
   flex: 1; height: var(--h); min-height: 1px; background: var(--kol);
@@ -344,9 +346,11 @@ tbody tr:last-child td { border-bottom: 0; }
   border-left: 1px dashed var(--kol);
 }
 .hg-znacznik span {
-  position: absolute; top: -2px; left: 4px; font-size: 10px; font-weight: 600;
+  position: absolute; top: calc(var(--i, 0) * 13px); left: 4px;
+  font-size: 10px; font-weight: 600;
   letter-spacing: .02em; color: var(--kol); white-space: nowrap;
 }
+.hg-znacznik.odbity span { left: auto; right: 4px; }
 
 /* --------------------------------------------------------------- tornado */
 .tor { position: relative; display: flex; flex-direction: column; gap: 9px; }

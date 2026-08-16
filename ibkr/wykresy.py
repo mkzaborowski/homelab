@@ -280,12 +280,17 @@ def histogram(kubelki: list[dict], znaczniki: list[dict] | None = None,
         f'title="{k["od"] * 100:+.2f}% … {k["do"] * 100:+.2f}%: {k["ile"]} dni"></div>'
         for i, k in enumerate(kubelki))
 
+    # Progi VaR leżą blisko siebie z definicji - to sąsiednie kwantyle tego
+    # samego ogona. Podpisy schodkujemy w pionie i odbijamy na drugą stronę
+    # linii w prawej połowie kadru, bo inaczej nakładają się na siebie
+    # i na krawędź wykresu dokładnie tam, gdzie mają coś powiedzieć.
+    widoczne = [z for z in (znaczniki or []) if lo <= z["wartosc"] <= hi]
     zn = "".join(
-        f'<div class="hg-znacznik" style="--x:{(z["wartosc"] - lo) / rozp * 100:.2f}%;'
+        f'<div class="hg-znacznik{" odbity" if (z["wartosc"] - lo) / rozp > 0.5 else ""}" '
+        f'style="--x:{(z["wartosc"] - lo) / rozp * 100:.2f}%;--i:{i};'
         f'--kol:{z.get("kolor", SPADEK)}">'
         f'<span>{e(z["etykieta"])}</span></div>'
-        for z in (znaczniki or [])
-        if lo <= z["wartosc"] <= hi)
+        for i, z in enumerate(sorted(widoczne, key=lambda z: z["wartosc"])))
 
     return (f'<div class="hg" role="img" aria-label="{e(opis or "Rozkład wartości")}">'
             f'<div class="hg-pole" style="height:{wys}px;--szer:{szer_s:.2f}%">'
@@ -361,12 +366,22 @@ def rozrzut(punkty: list[dict], os_x: str = "", os_y: str = "",
         f'{p["x"]:.1f}% kapitału, {p["y"]:.1f}% ryzyka</title></circle>'
         f'</g>' for i, p in enumerate(punkty))
 
-    # podpisujemy tylko odstające - reszta zlałaby się w plamę tekstu
-    odstajace = sorted(punkty, key=lambda p: -(p["y"] - p["x"]))[:5]
-    etyk = "".join(
-        f'<text class="rz-et" x="{px(p["x"]) + 9:.1f}" y="{py(p["y"]) + 4:.1f}" '
-        f'fill="{TEKST_SLABY}">{e(str(p.get("etykieta") or ""))}</text>'
-        for p in odstajace)
+    # Podpisujemy tylko odstające - reszta zlałaby się w plamę tekstu.
+    # Odstające skupiają się jednak w jednym rogu (małe pozycje o wysokiej
+    # zmienności leżą blisko siebie), więc podpisy trzeba jeszcze rozsunąć
+    # w pionie, inaczej nakładają się dokładnie na tych punktach, o które
+    # w tym wykresie chodzi.
+    odstajace = sorted(punkty, key=lambda p: -(p["y"] - p["x"]))[:6]
+    etyk, zajete = [], []
+    for p in sorted(odstajace, key=lambda p: py(p["y"])):
+        yy = py(p["y"]) + 4
+        while any(abs(yy - z) < 15 for z in zajete):
+            yy += 15
+        zajete.append(yy)
+        etyk.append(
+            f'<text class="rz-et" x="{px(p["x"]) + 9:.1f}" y="{yy:.1f}" '
+            f'fill="{TEKST_SLABY}">{e(str(p.get("etykieta") or ""))}</text>')
+    etyk = "".join(etyk)
 
     return (f'<div class="rz"><svg viewBox="0 0 {szer} {wys}" role="img" '
             f'aria-label="{e(opis or "Rozrzut")}">{siatka}{prz}{kropki_}{etyk}</svg>'
