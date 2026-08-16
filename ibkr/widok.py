@@ -633,6 +633,8 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
           <button data-cel="analiza">Analiza</button>
           <button data-cel="wynik">Wynik</button>
           <button data-cel="ryzyko">Ryzyko</button>
+          <button data-cel="ekspozycja">Ekspozycja</button>
+          <button data-cel="scenariusze">Scenariusze</button>
           <button data-cel="opcje">Opcje</button>
           <button data-cel="wzorzec">Wzorzec</button>
           <button data-cel="ustawienia">Ustawienia</button></nav>"""
@@ -691,6 +693,10 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
 {widok_analityka.zakladka_wynik(analityka)}
 
 {widok_analityka.zakladka_ryzyko(analityka)}
+
+{widok_analityka.zakladka_ekspozycja(analityka)}
+
+{widok_analityka.zakladka_scenariusze((analityka or {}).get("scenariusze"))}
 
 {widok_opcje.zakladka(analiza_opcji)}
 

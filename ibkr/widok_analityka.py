@@ -113,6 +113,146 @@ def siatka_miesiecy(miesiace: list[dict]) -> str:
 #  zakładki
 # --------------------------------------------------------------------------- #
 
+def tabela_wkladu(w: dict | None) -> str:
+    """Rozkład zmienności na pozycje. Kluczowa jest kolumna „krotność":
+    ile razy więcej ryzyka niż kapitału wnosi dana spółka."""
+    if not w or not w.get("pozycje"):
+        return ('<div class="tresc uwaga">Brak historii kursów — rozkładu ryzyka '
+                'nie da się policzyć.</div>')
+    wiersze = []
+    for p in w["pozycje"][:18]:
+        kr = p["krotnosc"]
+        znak = ('<span class="plak zle">ryzyko ponad kapitał</span>' if kr >= 2.0
+                else '<span class="plak uw">powyżej wagi</span>' if kr >= 1.3
+                else '<span class="plak ok">dywersyfikuje</span>' if kr < 0.5 else '')
+        wiersze.append(
+            f'<tr><td class="tyk">{e(p["symbol"])}</td>'
+            f'<td class="l num">{_proc(p["waga"], znak=False)}</td>'
+            f'<td class="l num">{_proc(p["udzial_w_ryzyku"], znak=False)}</td>'
+            f'<td class="l num"><b>{p["krotnosc"]:.2f}×</b></td>'
+            f'<td class="l num">{_proc(p["zmiennosc"], znak=False)}</td>'
+            f'<td>{znak}</td></tr>')
+    pom = ""
+    if w.get("pominiete"):
+        pom = (f'<div class="tresc"><p class="uwaga">Pominięto '
+               f'{len(w["pominiete"])} pozycji bez wystarczającej historii: '
+               f'{e(", ".join(w["pominiete"][:8]))}. Zestawienie obejmuje '
+               f'{_proc(w.get("udzial_objety", 0), znak=False)} kapitału — '
+               f'wykluczona pozycja nadal zajmuje pieniądze, tylko nie da się '
+               f'rzetelnie powiedzieć, ile wnosi ryzyka.</p></div>')
+    return ('<div class="przewin"><table><thead><tr><th>Spółka</th>'
+            '<th class="l">Kapitał</th><th class="l">Ryzyko</th>'
+            '<th class="l">Krotność</th><th class="l">Zmienność</th><th></th>'
+            f'</tr></thead><tbody>{"".join(wiersze)}</tbody></table></div>{pom}')
+
+
+def tabela_czynnikow(cz: list[dict] | None) -> str:
+    """Wrażliwość portfela na czynniki rynkowe."""
+    if not cz:
+        return '<div class="tresc uwaga">Brak historii kursów wzorców.</div>'
+    wiersze = "".join(
+        f'<tr><td class="tyk">{e(c["opis"])}</td>'
+        f'<td class="l num"><b>{c["beta"]:+.2f}</b></td>'
+        f'<td class="l num">{_proc(c["r2"], znak=False, po=0)}</td>'
+        f'<td class="l num">{c["korelacja"]:+.2f}</td>'
+        f'<td class="l num {_kl(c["alfa_roczna"])}">{_proc(c["alfa_roczna"])}</td></tr>'
+        for c in cz)
+    return ('<div class="przewin"><table><thead><tr><th>Czynnik</th>'
+            '<th class="l">Beta</th><th class="l">R²</th>'
+            '<th class="l">Korelacja</th><th class="l">Alfa roczna</th>'
+            f'</tr></thead><tbody>{wiersze}</tbody></table></div>'
+            '<div class="mini" style="margin-top:8px">Beta mówi, o ile porusza się '
+            'portfel na każdy 1% ruchu czynnika. R² mówi, jaka część zmienności '
+            'portfela jest tym czynnikiem wyjaśniona — niskie R² znaczy, że beta '
+            'jest wprawdzie policzona, ale mało znacząca.</div>')
+
+
+def pasek_udzialow(dane: list[dict], ile: int = 10) -> str:
+    if not dane:
+        return '<div class="tresc uwaga">Brak danych.</div>'
+    naj = max(d["udzial"] for d in dane) or 1.0
+    w = []
+    for d in dane[:ile]:
+        szer = d["udzial"] / naj * 100
+        w.append(
+            f'<div style="display:grid;grid-template-columns:150px 1fr 76px;'
+            f'gap:12px;align-items:center;margin-bottom:7px">'
+            f'<span class="mini" style="text-align:right">{e(d["nazwa"])}</span>'
+            f'<span style="background:var(--linia);border-radius:4px;height:16px;'
+            f'position:relative;overflow:hidden">'
+            f'<i style="position:absolute;inset:0 auto 0 0;width:{szer:.1f}%;'
+            f'background:linear-gradient(90deg,#2f81f7,#58a6ff);border-radius:4px;'
+            f'display:block"></i></span>'
+            f'<span class="num mini">{d["udzial"]:.1f}%</span></div>')
+    return "".join(w)
+
+
+def zakladka_ekspozycja(a: dict | None) -> str:
+    if not a or not a.get("ekspozycje"):
+        return ('<div data-panel="ekspozycja" class="panel-ukryty"><div class="karta">'
+                '<div class="tresc uwaga">Brak klasyfikacji.</div></div></div>')
+    ek = a["ekspozycje"]
+    return f'''<div data-panel="ekspozycja" class="panel-ukryty">
+  <div class="karta"><h2>Wrażliwość na czynniki rynkowe<span class="obok">regresja
+      zwrotów dziennych</span></h2>{tabela_czynnikow(a.get("czynniki"))}</div>
+  <div class="siatka dwie">
+    <div class="karta"><h2>Tematy</h2><div class="tresc">
+      {pasek_udzialow(ek.get("temat") or [])}</div></div>
+    <div class="karta"><h2>Sektory</h2><div class="tresc">
+      {pasek_udzialow(ek.get("sektor") or [])}</div></div>
+  </div>
+  <div class="siatka dwie">
+    <div class="karta"><h2>Kraje</h2><div class="tresc">
+      {pasek_udzialow(ek.get("kraj") or [], 6)}</div></div>
+    <div class="karta"><h2>Klasy aktywów</h2><div class="tresc">
+      {pasek_udzialow(ek.get("klasa") or [], 6)}</div></div>
+  </div>
+</div>'''
+
+
+def _skladniki(lista: list[dict]) -> str:
+    """Skrót w rodzaju „QQQ −22% · SPY −15%" do kolumny opisowej."""
+    return " · ".join(f'{k["czynnik"]} {k["zmiana"]:+.0%}' for k in lista)
+
+
+def zakladka_scenariusze(s: dict | None) -> str:
+    if not s or not s.get("dostepne"):
+        powod = (s or {}).get("powod", "brak danych")
+        return (f'<div data-panel="scenariusze" class="panel-ukryty"><div class="karta">'
+                f'<div class="tresc uwaga">{e(powod)}</div></div></div>')
+    pol = "".join(
+        f'<tr><td class="tyk">{e(x["nazwa"])}<div class="mini">{e(x["opis"])}</div></td>'
+        f'<td class="l num {_kl(x["wplyw"])}"><b>{_pln(x["wplyw"])}</b></td>'
+        f'<td class="l num {_kl(x["wplyw_proc"])}">{_proc(x["wplyw_proc"])}</td>'
+        f'<td class="l num">{_pln(x["nav_po"])}</td>'
+        f'<td class="mini">{e(_skladniki(x["skladniki"]))}</td></tr>'
+        for x in s["polaczone"])
+    poj = "".join(
+        f'<tr><td class="tyk">{e(x["opis"])}</td>'
+        f'<td class="l num">{x["zmiana"]:+.0%}</td>'
+        f'<td class="l num">{x["beta"]:+.2f}</td>'
+        f'<td class="l num {_kl(x["wplyw"])}">{_pln(x["wplyw"])}</td>'
+        f'<td class="l num {_kl(x["wplyw_proc"])}">{_proc(x["wplyw_proc"])}</td></tr>'
+        for x in s["pojedyncze"])
+    return f'''<div data-panel="scenariusze" class="panel-ukryty">
+  <div class="kom uw"><b>To są szacunki, nie prognozy.</b> Przełożenie jest liniowe
+    przez bety z ostatniego roku. W prawdziwym krachu korelacje rosną, a bety się
+    rozjeżdżają — model zaniża straty w scenariuszach najgłębszych. Opcje wchodzą
+    przez deltę i gammę, co przy dużych ruchach też jest przybliżeniem.</div>
+  <div class="karta"><h2>Sytuacje rynkowe<span class="obok">kilka wstrząsów
+      naraz</span></h2>
+    <div class="przewin"><table><thead><tr><th>Scenariusz</th>
+      <th class="l">Wpływ</th><th class="l">% NAV</th><th class="l">NAV po</th>
+      <th>Składniki</th></tr></thead><tbody>{pol}</tbody></table></div>
+  </div>
+  <div class="karta"><h2>Pojedyncze wstrząsy</h2>
+    <div class="przewin"><table><thead><tr><th>Czynnik</th><th class="l">Ruch</th>
+      <th class="l">Beta</th><th class="l">Wpływ</th><th class="l">% NAV</th>
+      </tr></thead><tbody>{poj}</tbody></table></div>
+  </div>
+</div>'''
+
+
 def zakladka_wynik(a: dict | None) -> str:
     if not a or not a.get("zwrot", {}).get("dostepne"):
         return ('<div data-panel="wynik" class="panel-ukryty"><div class="karta">'
@@ -240,8 +380,12 @@ def zakladka_ryzyko(a: dict | None) -> str:
   </div>
   <div class="karta"><h2>Koncentracja kapitału</h2>
     <div class="kafle">{kafle_konc}</div>{komentarz_konc}
-    <div class="tresc"><p class="uwaga">To koncentracja kapitału, nie ryzyka.
-      Rozkład zmienności na pozycje wymaga historii kursów poszczególnych spółek
-      i dojdzie razem z dostawcą danych rynkowych.</p></div>
+  </div>
+  <div class="karta"><h2>Wkład do ryzyka<span class="obok">udział w zmienności
+      wobec udziału w kapitale</span></h2>{tabela_wkladu(a.get("wklad"))}
+    <div class="tresc"><p class="uwaga">Krotność powyżej jedności znaczy, że pozycja
+      wnosi więcej ryzyka, niż wynikałoby z jej wielkości. Poniżej jedności —
+      że działa jak stabilizator. To jest inna informacja niż sama waga
+      i zwykle ciekawsza.</p></div>
   </div>
 </div>'''

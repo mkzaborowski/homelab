@@ -9,7 +9,10 @@ from flask import (Flask, redirect, request, send_file, session, url_for)
 
 import notowania
 import opcje
+import klasyfikacja
 import ryzyko
+import rynek
+import scenariusze as scen
 import zwrot
 import sheets
 import statystyki
@@ -84,6 +87,31 @@ def _analityka(hist, pods) -> dict:
     dzienne = [x for _, x in z["zwroty"]]
     r = ryzyko.podsumowanie(dzienne, z["obsuniecia"], z["twr_roczny"])
     wartosci = {t["symbol"]: t["wartosc"] for t in (pods or {}).get("tickery", [])}
+
+    # rozkład ryzyka i regresje czynnikowe - wymagają historii kursów
+    ceny = store.ceny()
+    wklad = czynniki = None
+    if ceny:
+        serie = {s: [x for _, x in rynek.zwroty_z_cen(sz)] for s, sz in ceny.items()}
+        wagi = {s: v for s, v in wartosci.items() if s in serie and v > 0}
+        wklad = ryzyko.wklad_do_ryzyka(wagi, serie)
+        czynniki = _czynniki(dict(z["zwroty"]), ceny)
+
+    poz = (pods or {}).get("pozycje", [])
+    # Nogę opcyjną scenariusze biorą przez deltę i gammę, więc potrzebują
+    # policzonych greków, a nie samych pozycji. Zera dawałyby wynik, w którym
+    # opcje nie robią nic - a przy krótkich callach to one boleją najbardziej.
+    opcje_do_scenariuszy = []
+    try:
+        zrz = store.zrzut()
+        if zrz:
+            for op in opcje.analizuj_pozycje(zrz["dane"]):
+                if op.greki:
+                    opcje_do_scenariuszy.append({
+                        "bazowy": op.bazowy, "spot": op.kurs_bazowego,
+                        "delta_akcji": op.delta_akcji, "gamma": op.gamma_pozycji})
+    except Exception:                                           # noqa: BLE001
+        opcje_do_scenariuszy = []
     return {
         "zwrot": z,
         "ryzyko": r,
@@ -91,7 +119,39 @@ def _analityka(hist, pods) -> dict:
         "miesiace": zwrot.zwroty_miesieczne(hist, zwrot.przeplywy_z_operacji(ops)),
         "szereg": hist,
         "uzgodnienie": {"ibkr": store.twr_ibkr()},
+        "wklad": wklad,
+        "czynniki": czynniki,
+        "ekspozycje": {
+            "temat": klasyfikacja.udzialy(poz, klasyfikacja.TEMAT),
+            "sektor": klasyfikacja.udzialy(poz, klasyfikacja.SEKTOR),
+            "kraj": klasyfikacja.udzialy(poz, klasyfikacja.KRAJ),
+            "klasa": klasyfikacja.udzialy(poz, klasyfikacja.KLASA),
+        },
+        "zrodlo_cen": {"nazwa": rynek.dostawca().nazwa,
+                       "zakres": store.zakres_cen()},
+        "scenariusze": scen.podsumowanie(
+            (pods or {}).get("nav", 0.0), czynniki or [], opcje_do_scenariuszy),
     }
+
+
+def _czynniki(zwroty_portfela: dict, ceny: dict) -> list[dict]:
+    """Regresja zwrotów portfela wobec każdego wzorca z osobna.
+
+    Świadomie osobno, nie w jednej regresji wielorakiej: wzorce są ze sobą
+    silnie skorelowane (QQQ z SPY), więc współczynniki z regresji wielorakiej
+    byłyby niestabilne i trudne do obrony. Osobne bety odpowiadają na pytanie
+    „jak bardzo portfel idzie za tym czynnikiem", i to jest pytanie użyteczne."""
+    out = []
+    for sym, opis in rynek.WZORCE.items():
+        if sym not in ceny:
+            continue
+        wz = dict(rynek.zwroty_z_cen(ceny[sym]))
+        wspolne = sorted(set(zwroty_portfela) & set(wz))
+        b = ryzyko.beta([zwroty_portfela[d] for d in wspolne],
+                        [wz[d] for d in wspolne]) if len(wspolne) >= 60 else None
+        if b:
+            out.append({"symbol": sym, "opis": opis, **b})
+    return sorted(out, key=lambda x: -abs(x["r2"] or 0))
 
 
 def _dane_panelu():
