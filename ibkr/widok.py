@@ -789,6 +789,12 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
     naglowek = f"""<div class="gora-str">
   <div><h1>{e(pods["kwartal"]) if pods else "Portfel"}</h1>
     <div class="pod">stan na {e(pods["data"]) if pods else "—"} · {e(harmonogram)}</div></div>
+  <div class="narzedzia">
+    <button class="motyw" aria-label="Przełącz motyw" title="Przełącz motyw jasny i ciemny">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+    </button>
+  </div>
 </div>"""
 
     return f"""<!doctype html><html lang="pl"><head><meta charset="utf-8">
@@ -804,4 +810,5 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
 </main>
 </div>
 {SKRYPT}
+{style.SKRYPT_UI}
 </body></html>"""

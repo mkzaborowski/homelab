@@ -5,9 +5,9 @@ danych i mieszanie ich w jednym pliku utrudniało jedno i drugie.
 
 Założenia, świadome i możliwe do obrony:
 
-  * Ciemność jest tłem, nie motywem. Panel ogląda się rano i wieczorem,
-    często obok wykresów maklerskich - jasne tło męczyłoby przy długim
-    czytaniu liczb.
+  * Dwa pełne motywy, jasny domyślny. Oba mają KOMPLET zmiennych - kolor
+    zdefiniowany tylko w jednym znika w drugim i zostawia tekst jednego
+    motywu na tle drugiego. Wybór zapamiętuje przeglądarka.
   * Akcent oznacza „interaktywne albo wyróżnione". Zieleń i czerwień znaczą
     „lepiej / gorzej". To dwa rozłączne języki i nigdy się nie mieszają -
     niebieski nigdy nie znaczy „dobrze".
@@ -19,29 +19,64 @@ Założenia, świadome i możliwe do obrony:
 """
 
 STYL = """
+/* Motyw jasny jest domyślny, ciemny wchodzi atrybutem na <html>. Oba mają
+   PEŁNY komplet zmiennych - kolor zdefiniowany tylko w jednym motywie znika
+   w drugim i zostawia tekst jednego motywu na tle drugiego. */
 :root {
-  --tlo:        #0B0E14;
-  --tlo-2:      #0E121B;
-  --plyta:      #131824;
-  --plyta-2:    #171D2B;
-  --linia:      rgba(255,255,255,.07);
-  --linia-2:    rgba(255,255,255,.12);
-  --tekst:      #E8ECF4;
-  --tekst-2:    #9BA6BC;
-  --tekst-3:    #5F6B82;
+  --tlo:        #F6F4FC;
+  --tlo-2:      #FFFFFF;
+  --plyta:      #FFFFFF;
+  --plyta-2:    #FBFAFE;
+  --linia:      rgba(24,20,44,.09);
+  --linia-2:    rgba(24,20,44,.16);
+  --tekst:      #1B1730;
+  --tekst-2:    #5C5578;
+  --tekst-3:    #8E88A6;
 
-  --akcent:     #4C8DFF;
-  --akcent-2:   #7AA7FF;
-  --akcent-tlo: rgba(76,141,255,.12);
-  --wzrost:     #3FB950;
-  --spadek:     #F85149;
-  --uwaga:      #D29922;
+  --akcent:     #7C5CFC;
+  --akcent-2:   #9E86FF;
+  --akcent-tlo: rgba(124,92,252,.10);
+  --wzrost:     #12A150;
+  --wzrost-tlo: rgba(18,161,80,.11);
+  --spadek:     #E5484D;
+  --spadek-tlo: rgba(229,72,77,.10);
+  --uwaga:      #C77700;
+  --uwaga-tlo:  rgba(199,119,0,.11);
 
-  /* Ruch: jedna krzywa na cały panel. Krytycznie tłumiona - bez odbicia,
-     bo liczby finansowe nie powinny podskakiwać. */
+  --cien:       0 1px 2px rgba(24,20,44,.05), 0 12px 32px -18px rgba(24,20,44,.22);
+  --poswiata-1: rgba(160,110,255,.20);
+  --poswiata-2: rgba(110,140,255,.14);
+  --siatka:     rgba(24,20,44,.07);
+
   --e:          cubic-bezier(.22,.61,.36,1);
-  --e-wyjscie:  cubic-bezier(.4,0,.68,.06);
   --dotyk:      100ms;
+}
+
+html[data-motyw="ciemny"] {
+  --tlo:        #0C0A16;
+  --tlo-2:      #12101E;
+  --plyta:      #161424;
+  --plyta-2:    #1C1930;
+  --linia:      rgba(255,255,255,.08);
+  --linia-2:    rgba(255,255,255,.15);
+  --tekst:      #ECEAF6;
+  --tekst-2:    #A29CBE;
+  --tekst-3:    #6E6890;
+
+  --akcent:     #9E86FF;
+  --akcent-2:   #B9A6FF;
+  --akcent-tlo: rgba(158,134,255,.15);
+  --wzrost:     #3DD68C;
+  --wzrost-tlo: rgba(61,214,140,.13);
+  --spadek:     #FF6369;
+  --spadek-tlo: rgba(255,99,105,.13);
+  --uwaga:      #E5B94E;
+  --uwaga-tlo:  rgba(229,185,78,.13);
+
+  --cien:       0 1px 0 rgba(255,255,255,.03) inset, 0 20px 44px -30px rgba(0,0,0,.9);
+  --poswiata-1: rgba(124,92,252,.22);
+  --poswiata-2: rgba(60,100,255,.14);
+  --siatka:     rgba(255,255,255,.06);
 }
 
 * { box-sizing: border-box; }
@@ -49,8 +84,8 @@ STYL = """
 body {
   margin: 0;
   background:
-    radial-gradient(1200px 600px at 15% -10%, rgba(76,141,255,.10), transparent 60%),
-    radial-gradient(900px 500px at 85% 0%, rgba(139,123,255,.07), transparent 55%),
+    radial-gradient(1100px 620px at 12% -8%, var(--poswiata-1), transparent 62%),
+    radial-gradient(900px 520px at 88% 4%, var(--poswiata-2), transparent 58%),
     var(--tlo);
   background-attachment: fixed;
   color: var(--tekst);
@@ -68,7 +103,7 @@ body {
 .szkielet { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
 
 .bok {
-  background: linear-gradient(180deg, rgba(19,24,36,.92), rgba(11,14,20,.92));
+  background: color-mix(in oklab, var(--plyta) 88%, transparent);
   backdrop-filter: blur(24px) saturate(160%);
   border-right: 1px solid var(--linia);
   padding: 22px 14px;
@@ -82,9 +117,9 @@ body {
 .marka b { font-size: 15px; letter-spacing: -.01em; font-weight: 600; }
 .marka i {
   width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--akcent), #8B7BFF);
+  background: linear-gradient(135deg, var(--akcent), #B57BFF);
   font-style: normal; font-weight: 700; font-size: 13px; color: #fff;
-  box-shadow: 0 6px 18px -6px rgba(76,141,255,.7);
+  box-shadow: 0 6px 18px -6px color-mix(in oklab, var(--akcent) 70%, transparent);
 }
 .marka small { display: block; color: var(--tekst-3); font-size: 10.5px; letter-spacing: .06em; }
 
@@ -98,7 +133,7 @@ body {
   transition: background var(--dotyk) var(--e), color var(--dotyk) var(--e);
 }
 .nawig button svg { width: 16px; height: 16px; flex: none; opacity: .8; }
-.nawig button:hover { background: rgba(255,255,255,.04); color: var(--tekst); }
+.nawig button:hover { background: var(--akcent-tlo); color: var(--tekst); }
 .nawig button:active { transform: scale(.98); }
 .nawig button[aria-selected=true] {
   background: var(--akcent-tlo); color: var(--akcent-2);
@@ -120,12 +155,12 @@ body {
 
 /* ---------------------------------------------------------------- karty */
 .karta {
-  background: linear-gradient(180deg, var(--plyta), var(--tlo-2));
+  background: var(--plyta);
   border: 1px solid var(--linia);
   border-radius: 16px;
   margin-bottom: 18px;
   overflow: hidden;
-  box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 20px 44px -32px rgba(0,0,0,.9);
+  box-shadow: var(--cien);
 }
 .karta > h2 {
   margin: 0; padding: 16px 20px 14px;
@@ -160,6 +195,13 @@ body {
   transition: background 180ms var(--e);
 }
 .kafel:hover { background: var(--plyta-2); }
+.kafel .zmiana {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: 8px;
+  font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 20px;
+  letter-spacing: .01em; vertical-align: middle;
+}
+.kafel .zmiana.up { background: var(--wzrost-tlo); color: var(--wzrost); }
+.kafel .zmiana.down { background: var(--spadek-tlo); color: var(--spadek); }
 .kafel .et {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .085em;
   color: var(--tekst-3); font-weight: 600; margin-bottom: 7px;
@@ -177,11 +219,11 @@ th {
   text-align: left; padding: 11px 14px;
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .075em;
   color: var(--tekst-3); font-weight: 600; white-space: nowrap;
-  border-bottom: 1px solid var(--linia); background: rgba(255,255,255,.012);
+  border-bottom: 1px solid var(--linia); background: var(--plyta-2);
 }
-td { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.04); }
+td { padding: 10px 14px; border-bottom: 1px solid var(--linia); }
 tbody tr { transition: background 140ms var(--e); }
-tbody tr:hover { background: rgba(255,255,255,.028); }
+tbody tr:hover { background: var(--plyta-2); }
 tbody tr:last-child td { border-bottom: 0; }
 .l { text-align: right; }
 .tyk { font-weight: 600; letter-spacing: -.004em; }
@@ -191,29 +233,31 @@ tbody tr:last-child td { border-bottom: 0; }
   letter-spacing: .045em; padding: 2.5px 8px; border-radius: 20px;
   text-transform: uppercase; white-space: nowrap;
 }
-.plak.ok { background: rgba(63,185,80,.13); color: var(--wzrost); }
-.plak.zle { background: rgba(248,81,73,.13); color: var(--spadek); }
-.plak.uw { background: rgba(210,153,34,.14); color: var(--uwaga); }
+.plak.ok { background: var(--wzrost-tlo); color: var(--wzrost); }
+.plak.zle { background: var(--spadek-tlo); color: var(--spadek); }
+.plak.uw { background: var(--uwaga-tlo); color: var(--uwaga); }
 
 .kom {
   padding: 12px 16px; border-radius: 11px; margin-bottom: 16px;
   font-size: 12.8px; line-height: 1.6;
-  background: var(--akcent-tlo); color: var(--akcent-2);
-  border: 1px solid rgba(76,141,255,.2);
+  background: var(--akcent-tlo); color: var(--akcent);
+  border: 1px solid color-mix(in oklab, var(--akcent) 26%, transparent);
 }
-.kom.uw { background: rgba(210,153,34,.1); color: #E8C468; border-color: rgba(210,153,34,.24); }
-.kom.zle { background: rgba(248,81,73,.1); color: #FF9B93; border-color: rgba(248,81,73,.24); }
+.kom.uw { background: var(--uwaga-tlo); color: var(--uwaga);
+  border-color: color-mix(in oklab, var(--uwaga) 30%, transparent); }
+.kom.zle { background: var(--spadek-tlo); color: var(--spadek);
+  border-color: color-mix(in oklab, var(--spadek) 30%, transparent); }
 
 .btn {
   display: inline-flex; align-items: center; gap: 7px;
-  background: linear-gradient(180deg, var(--akcent), #3B7AE8);
+  background: linear-gradient(180deg, var(--akcent), color-mix(in oklab, var(--akcent) 82%, #000));
   color: #fff; border: 0; border-radius: 9px;
   padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 500;
   cursor: pointer; letter-spacing: -.004em;
-  box-shadow: 0 8px 20px -10px rgba(76,141,255,.85);
+  box-shadow: 0 8px 20px -10px color-mix(in oklab, var(--akcent) 80%, transparent);
   transition: transform var(--dotyk) var(--e), box-shadow 200ms var(--e);
 }
-.btn:hover { box-shadow: 0 12px 26px -10px rgba(76,141,255,.95); }
+.btn:hover { box-shadow: 0 12px 26px -10px color-mix(in oklab, var(--akcent) 90%, transparent); }
 .btn:active { transform: scale(.97); }
 .btn.szary {
   background: rgba(255,255,255,.06); box-shadow: none;
@@ -250,7 +294,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .pasek-w { display: grid; grid-template-columns: 132px 1fr 62px; gap: 13px; align-items: center; }
 .pasek-n { font-size: 12.3px; color: var(--tekst-2); text-align: right;
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pasek-t { height: 8px; background: rgba(255,255,255,.05); border-radius: 5px; overflow: hidden; }
+.pasek-t { height: 8px; background: var(--linia); border-radius: 5px; overflow: hidden; }
 .pasek-t i { display: block; height: 100%; width: var(--szer); border-radius: 5px; }
 .pasek-v { font-size: 12.3px; font-weight: 600; text-align: right; }
 
@@ -263,7 +307,7 @@ tbody tr:last-child td { border-bottom: 0; }
 
 .kropki { display: grid; grid-template-columns: repeat(var(--kol), 1fr); gap: 5px; }
 .kropka { width: 9px; height: 9px; border-radius: 50%; display: block;
-          background: rgba(255,255,255,.09); }
+          background: var(--linia); }
 .kropka.pelna { background: var(--kol, var(--akcent)); }
 
 .wsk { position: relative; }
@@ -281,6 +325,65 @@ tbody tr:last-child td { border-bottom: 0; }
   background: color-mix(in oklab, var(--kol) calc(var(--moc) * 42%), transparent);
 }
 .hm-pusta { text-align: center; color: var(--tekst-3); }
+
+/* ------------------------------------------------- sterowniki nad wykresem */
+.narzedzia { display: flex; gap: 6px; align-items: center; }
+.zakres {
+  display: inline-flex; background: var(--plyta-2); border: 1px solid var(--linia);
+  border-radius: 9px; padding: 2px; gap: 2px;
+}
+.zakres button {
+  background: 0; border: 0; cursor: pointer; font: inherit; font-size: 11.5px;
+  font-weight: 600; letter-spacing: .01em; color: var(--tekst-3);
+  padding: 5px 11px; border-radius: 7px;
+  transition: background var(--dotyk) var(--e), color var(--dotyk) var(--e);
+}
+.zakres button:hover { color: var(--tekst); }
+.zakres button:active { transform: scale(.96); }
+.zakres button[aria-pressed=true] {
+  background: var(--plyta); color: var(--akcent);
+  box-shadow: 0 1px 3px rgba(24,20,44,.10);
+}
+
+.motyw {
+  background: var(--plyta-2); border: 1px solid var(--linia); cursor: pointer;
+  width: 32px; height: 32px; border-radius: 9px; color: var(--tekst-2);
+  display: grid; place-items: center; padding: 0;
+  transition: transform var(--dotyk) var(--e), color var(--dotyk) var(--e);
+}
+.motyw:hover { color: var(--tekst); }
+.motyw:active { transform: scale(.94); }
+.motyw svg { width: 15px; height: 15px; }
+
+/* Podpowiedź śledząca kursor. Pozycjonowana transformem, nie left/top -
+   przy ruchu myszy to jedyna droga, która nie wymusza przeliczania układu
+   przy każdej klatce. */
+.wykres { position: relative; }
+.podp {
+  position: absolute; pointer-events: none; z-index: 5;
+  background: var(--plyta); border: 1px solid var(--linia-2);
+  border-radius: 10px; padding: 8px 11px; box-shadow: var(--cien);
+  font-size: 11.5px; white-space: nowrap;
+  opacity: 0; transition: opacity 130ms var(--e);
+  transform: translate(-50%, -118%);
+}
+.podp.widoczna { opacity: 1; }
+.podp .p-data { color: var(--tekst-3); font-size: 10.5px; letter-spacing: .02em; }
+.podp .p-wart { color: var(--akcent); font-weight: 700; font-size: 13px; margin-top: 1px; }
+.kursor-linia {
+  position: absolute; top: 0; bottom: 22px; width: 1px;
+  background: var(--linia-2); opacity: 0; pointer-events: none;
+  transition: opacity 130ms var(--e);
+}
+.kursor-linia.widoczna { opacity: 1; }
+.kursor-kropka {
+  position: absolute; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--akcent); border: 2px solid var(--plyta);
+  opacity: 0; pointer-events: none; transform: translate(-50%, -50%);
+  transition: opacity 130ms var(--e);
+  box-shadow: 0 0 0 3px var(--akcent-tlo);
+}
+.kursor-kropka.widoczna { opacity: 1; }
 
 /* ---------------------------------------------------------------- ruch */
 /* Wejście kaskadowe. Opóźnienie rośnie z pozycją, ale zatrzymuje się na
@@ -368,3 +471,99 @@ def ikona(nazwa: str) -> str:
     return (f'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" '
             f'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" '
             f'aria-hidden="true"><path d="{d}"/></svg>')
+
+
+# Zachowanie warstwy wizualnej. Świadomie w jednym miejscu i bez zależności -
+# to kilkadziesiąt linii, a nie powód do wprowadzania kroku budowania.
+SKRYPT_UI = """
+<script>
+(function(){
+  // ---- motyw ----------------------------------------------------------
+  // Zapisany wybór wygrywa z ustawieniem systemu, bo jest nowszą decyzją
+  // tej samej osoby. Stosujemy go przed pierwszym rysowaniem, żeby nie
+  // było mignięcia jasnym tłem przy wejściu w motywie ciemnym.
+  var H = document.documentElement;
+  try {
+    var zap = localStorage.getItem('motyw');
+    if (zap) H.dataset.motyw = zap;
+    else if (matchMedia('(prefers-color-scheme: dark)').matches) H.dataset.motyw = 'ciemny';
+  } catch(e) {}
+
+  document.addEventListener('click', function(ev){
+    var b = ev.target.closest('.motyw');
+    if (!b) return;
+    var ciemny = H.dataset.motyw === 'ciemny';
+    H.dataset.motyw = ciemny ? 'jasny' : 'ciemny';
+    try { localStorage.setItem('motyw', H.dataset.motyw); } catch(e) {}
+    b.setAttribute('aria-label', ciemny ? 'Włącz motyw ciemny' : 'Włącz motyw jasny');
+  });
+
+  // ---- podpowiedź na wykresie ----------------------------------------
+  // Pozycjonujemy transformem, nie left/top: przy ruchu myszy to jedyna
+  // droga, która nie wymusza przeliczania układu w każdej klatce.
+  function podepnij(w){
+    var punkty = (w.dataset.punkty || '').split('|').map(function(x){
+      var c = x.split(';'); return { d: c[0], v: parseFloat(c[1]) };
+    }).filter(function(p){ return p.d && !isNaN(p.v); });
+    if (punkty.length < 2) return;
+
+    var lo = parseFloat(w.dataset.lo), hi = parseFloat(w.dataset.hi);
+    var jedn = w.dataset.jedn || '';
+    var podp = w.querySelector('.podp'), linia = w.querySelector('.kursor-linia'),
+        kropka = w.querySelector('.kursor-kropka'), svg = w.querySelector('svg');
+    if (!podp || !svg) return;
+    var pData = podp.querySelector('.p-data'), pWart = podp.querySelector('.p-wart');
+    var czeka = 0;
+
+    function rusz(ev){
+      if (czeka) return;
+      czeka = requestAnimationFrame(function(){
+        czeka = 0;
+        var r = svg.getBoundingClientRect();
+        var u = Math.min(Math.max((ev.clientX - r.left) / r.width, 0), 1);
+        var i = Math.round(u * (punkty.length - 1));
+        var p = punkty[i];
+        var x = (i / (punkty.length - 1)) * r.width;
+        var y = r.height - ((p.v - lo) / ((hi - lo) || 1)) * r.height;
+
+        pData.textContent = p.d;
+        pWart.textContent = jedn + p.v.toLocaleString('pl-PL',
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        podp.style.transform = 'translate(' + x + 'px,' + (y - 14) + 'px) translate(-50%,-100%)';
+        linia.style.transform = 'translateX(' + x + 'px)';
+        kropka.style.transform = 'translate(' + x + 'px,' + y + 'px) translate(-50%,-50%)';
+        podp.classList.add('widoczna');
+        linia.classList.add('widoczna');
+        kropka.classList.add('widoczna');
+      });
+    }
+    function schowaj(){
+      podp.classList.remove('widoczna');
+      linia.classList.remove('widoczna');
+      kropka.classList.remove('widoczna');
+    }
+    // pointer, nie mouse - ten sam kod obsługuje rysik i dotyk
+    w.addEventListener('pointermove', rusz);
+    w.addEventListener('pointerleave', schowaj);
+    w.addEventListener('pointercancel', schowaj);
+  }
+  document.querySelectorAll('[data-wykres]').forEach(podepnij);
+
+  // ---- przełącznik zakresu -------------------------------------------
+  // Filtrujemy po stronie przeglądarki: dane i tak są już na stronie,
+  // więc odpytywanie serwera dodałoby opóźnienie bez żadnego zysku.
+  document.addEventListener('click', function(ev){
+    var b = ev.target.closest('.zakres button');
+    if (!b) return;
+    var grupa = b.closest('.zakres');
+    grupa.querySelectorAll('button').forEach(function(x){
+      x.setAttribute('aria-pressed', String(x === b));
+    });
+    var cel = document.querySelector(grupa.dataset.cel || '');
+    if (!cel) return;
+    var dni = parseInt(b.dataset.dni || '0', 10);
+    cel.dispatchEvent(new CustomEvent('zakres', { detail: { dni: dni } }));
+  });
+})();
+</script>
+"""

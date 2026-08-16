@@ -24,13 +24,22 @@ from html import escape as e
 
 # Wspólna paleta. Semantyka (wzrost/spadek/uwaga) jest ODDZIELONA od akcentu:
 # akcent oznacza „to jest interaktywne albo wyróżnione", a nie „to jest dobre".
-AKCENT = "#4C8DFF"
-AKCENT_2 = "#7AA7FF"
-WZROST = "#3FB950"
-SPADEK = "#F85149"
-UWAGA = "#D29922"
-SIATKA = "rgba(255,255,255,.06)"
-TEKST_SLABY = "rgba(255,255,255,.38)"
+# Kolory idą przez zmienne CSS, nie przez stałe. Dzięki temu wykresy zmieniają
+# się razem z motywem, zamiast zostawać niebieskie na fioletowym tle albo
+# białoszare na jasnym. SVG rozumie var() w atrybutach stroke i fill,
+# a także w stop-color gradientu.
+AKCENT = "var(--akcent)"
+AKCENT_2 = "var(--akcent-2)"
+WZROST = "var(--wzrost)"
+SPADEK = "var(--spadek)"
+UWAGA = "var(--uwaga)"
+SIATKA = "var(--siatka)"
+TEKST_SLABY = "var(--tekst-3)"
+
+# Paleta pierścieni. Tu potrzebne są wartości bezwzględne, bo kategorii bywa
+# osiem i muszą być rozróżnialne między sobą, a nie tylko wobec tła.
+PALETA = ["#7C5CFC", "#9E86FF", "#5B8DEF", "#3DBFA0", "#12A150",
+          "#E5A21A", "#EE7C4E", "#C05FD8"]
 
 _licznik = [0]
 
@@ -130,12 +139,18 @@ def obszar(szereg: list[tuple[str, float]], wys: int = 230, kolor: str = AKCENT,
         odn = (f'<line x1="0" y1="{yo:.1f}" x2="{szer}" y2="{yo:.1f}" '
                f'stroke="{TEKST_SLABY}" stroke-dasharray="4 4"/>')
 
-    return f'''<div class="wykres">
+    # Dane dla podpowiedzi trafiają do atrybutu, a nie do osobnego żądania -
+    # przy 262 punktach to kilka kilobajtów, a unika się całej maszynerii
+    # asynchronicznej dla czegoś, co i tak jest już na stronie.
+    dane_json = "|".join(f"{d};{v:.2f}" for d, v in szereg)
+
+    return f'''<div class="wykres" data-wykres data-punkty="{e(dane_json)}"
+     data-jedn="{e(jednostka)}" data-lo="{lo:.4f}" data-hi="{hi:.4f}">
 <svg viewBox="0 0 {szer} {wys}" preserveAspectRatio="none" role="img"
      aria-label="{e(opis or "Przebieg wartości")}: od {jednostka}{wartosci[0]:,.0f} do {jednostka}{wartosci[-1]:,.0f}">
   <defs>
     <linearGradient id="{g}" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="{kolor}" stop-opacity=".34"/>
+      <stop offset="0" stop-color="{kolor}" stop-opacity=".30"/>
       <stop offset="1" stop-color="{kolor}" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="{gl}" x1="0" y1="0" x2="1" y2="0">
@@ -149,6 +164,8 @@ def obszar(szereg: list[tuple[str, float]], wys: int = 230, kolor: str = AKCENT,
         stroke-linecap="round" stroke-linejoin="round"/>
   <circle class="obszar-koniec" cx="{pkt[-1][0]:.1f}" cy="{pkt[-1][1]:.1f}" r="4" fill="{kolor}"/>
 </svg>
+<div class="kursor-linia"></div><div class="kursor-kropka"></div>
+<div class="podp"><div class="p-data"></div><div class="p-wart num"></div></div>
 <div class="wykres-osx"><span>{e(szereg[0][0])}</span><span>{e(szereg[-1][0])}</span></div>
 </div>'''.replace(",", " ")
 
@@ -173,7 +190,7 @@ def pierscien(dane: list[tuple[str, float]], srodek_gora: str = "",
         dane = dane[:7] + [("Pozostałe", reszta)]
     suma = sum(v for _, v in dane) or 1.0
 
-    palet = [AKCENT, "#6E9BFF", "#8B7BFF", "#B06AE8", WZROST, "#3FA9B9", UWAGA, "#7D8794"]
+    palet = PALETA
     r, gr = rozmiar / 2 - 16, 15
     obwod = 2 * math.pi * r
     kat = -90.0
