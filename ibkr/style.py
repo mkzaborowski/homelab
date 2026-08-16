@@ -326,8 +326,68 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .hm-pusta { text-align: center; color: var(--tekst-3); }
 
+/* ------------------------------------------------------------- histogram */
+.hg-pole {
+  position: relative; display: flex; align-items: flex-end; gap: 0;
+  --szer: 3%; padding-top: 18px;
+}
+.hg-k {
+  flex: 1; height: var(--h); min-height: 1px; background: var(--kol);
+  opacity: .78; border-radius: 3px 3px 0 0; margin: 0 .6px;
+  transform-origin: bottom;
+}
+.hg-k:hover { opacity: 1; }
+/* Znacznik progu. Cała treść histogramu zwrotów siedzi w tej linii - sam
+   kształt mówi „bywa różnie", dopiero próg pokazuje, gdzie leży granica. */
+.hg-znacznik {
+  position: absolute; top: 0; bottom: 0; left: var(--x); width: 0;
+  border-left: 1px dashed var(--kol);
+}
+.hg-znacznik span {
+  position: absolute; top: -2px; left: 4px; font-size: 10px; font-weight: 600;
+  letter-spacing: .02em; color: var(--kol); white-space: nowrap;
+}
+
+/* --------------------------------------------------------------- tornado */
+.tor { position: relative; display: flex; flex-direction: column; gap: 9px; }
+/* Oś zera przechodzi przez środek pola słupków, nie przez środek wiersza -
+   podpisy po bokach mają stałą szerokość, więc muszą być z niej wyłączone. */
+.tor-os {
+  position: absolute; top: 0; bottom: 0; left: calc(148px + (100% - 148px - 78px) / 2);
+  width: 1px; background: var(--linia-2);
+}
+.tor-w {
+  display: grid; grid-template-columns: 148px 1fr 78px; align-items: center; gap: 10px;
+  font-size: 12.3px;
+}
+.tor-n { color: var(--tekst-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tor-t { position: relative; height: 15px; }
+.tor-t i {
+  position: absolute; top: 0; bottom: 0; left: var(--lewo); width: var(--szer);
+  border-radius: 3px; opacity: .88;
+}
+.tor-v { text-align: right; font-weight: 600; font-size: 12px; }
+
+/* --------------------------------------------------------------- rozrzut */
+.rz svg { width: 100%; display: block; overflow: visible; }
+.rz-et { font-size: 15px; font-weight: 600; }
+.rz-osie {
+  display: flex; justify-content: space-between; margin-top: 8px;
+  font-size: 11px; color: var(--tekst-3); letter-spacing: .02em;
+}
+
+.legenda-pozioma {
+  display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px;
+  padding-top: 12px; border-top: 1px solid var(--linia);
+}
+
 /* ------------------------------------------------- sterowniki nad wykresem */
 .narzedzia { display: flex; gap: 6px; align-items: center; }
+/* Pigułki zakresu w normalnym przepływie nad wykresem, dosunięte do prawej.
+   Świadomie nie absolutnie: nad wykresem siedzi już nagłówek karty z własnym
+   podpisem po prawej, a dwie rzeczy pozycjonowane absolutnie w tym samym
+   rogu zderzają się przy pierwszym dłuższym podpisie. */
+.wykres > .zakres { display: flex; width: max-content; margin: 0 2px 12px auto; }
 .zakres {
   display: inline-flex; background: var(--plyta-2); border: 1px solid var(--linia);
   border-radius: 9px; padding: 2px; gap: 2px;
@@ -420,10 +480,22 @@ tbody tr:last-child td { border-bottom: 0; }
 @keyframes kropnij { from { opacity: 0; transform: scale(.3) } }
 .kropka { animation: kropnij .4s var(--e) both; animation-delay: var(--op, 0ms); }
 
+/* Histogram rośnie od podstawy, bo tak przyrasta liczba obserwacji.
+   Skalujemy transformem, nie wysokością - to jedyna z tych dwóch dróg,
+   której przeglądarka nie musi przeliczać w każdej klatce. */
+@keyframes wzrost_y { from { transform: scaleY(0) } }
+.hg-k { animation: wzrost_y .55s var(--e) both; animation-delay: var(--op, 0ms); }
+
+@keyframes rozejdz { from { width: 0; left: 50% } }
+.tor-t i { animation: rozejdz .7s var(--e) both; animation-delay: var(--op, 0ms); }
+
+.rz-p { animation: kropnij .45s var(--e) both; animation-delay: var(--op, 0ms); }
+
 /* Kto prosi o mniej ruchu, dostaje ten sam obraz od razu w stanie końcowym.
    Nie chodzi o odebranie informacji, tylko o odebranie wędrówki po ekranie. */
 @media (prefers-reduced-motion: reduce) {
-  .karta, .obszar-wyp, .obszar-koniec, .pier-seg, .pasek-t i, .sp-k i, .kropka {
+  .karta, .obszar-wyp, .obszar-koniec, .pier-seg, .pasek-t i, .sp-k i, .kropka,
+  .hg-k, .tor-t i, .rz-p {
     animation: none !important;
   }
   .obszar-linia, .isk-linia, .wsk-luk {
@@ -498,23 +570,73 @@ SKRYPT_UI = """
     b.setAttribute('aria-label', ciemny ? 'Włącz motyw ciemny' : 'Włącz motyw jasny');
   });
 
-  // ---- podpowiedź na wykresie ----------------------------------------
-  // Pozycjonujemy transformem, nie left/top: przy ruchu myszy to jedyna
-  // droga, która nie wymusza przeliczania układu w każdej klatce.
+  // ---- wykres przebiegu: podpowiedź i zakres --------------------------
+  // Ta sama krzywa Catmulla-Roma co na serwerze. Powtórzenie wzoru w dwóch
+  // językach jest kosztem, ale alternatywą było odpytywanie serwera przy
+  // każdej zmianie zakresu - opóźnienie i stan do zsynchronizowania w zamian
+  // za zero nowych danych, bo wszystkie punkty i tak są już na stronie.
+  function sciezka(pkt, nap){
+    if (pkt.length < 2) return '';
+    var d = ['M ' + pkt[0][0].toFixed(2) + ' ' + pkt[0][1].toFixed(2)];
+    for (var i = 0; i < pkt.length - 1; i++) {
+      var p0 = i ? pkt[i-1] : pkt[0], p1 = pkt[i], p2 = pkt[i+1],
+          p3 = (i + 2 < pkt.length) ? pkt[i+2] : p2;
+      d.push('C ' + (p1[0] + (p2[0]-p0[0])*nap).toFixed(2) + ' '
+                  + (p1[1] + (p2[1]-p0[1])*nap).toFixed(2) + ' '
+                  + (p2[0] - (p3[0]-p1[0])*nap).toFixed(2) + ' '
+                  + (p2[1] - (p3[1]-p1[1])*nap).toFixed(2) + ' '
+                  + p2[0].toFixed(2) + ' ' + p2[1].toFixed(2));
+    }
+    return d.join(' ');
+  }
+
   function podepnij(w){
-    var punkty = (w.dataset.punkty || '').split('|').map(function(x){
+    var wszystkie = (w.dataset.punkty || '').split('|').map(function(x){
       var c = x.split(';'); return { d: c[0], v: parseFloat(c[1]) };
     }).filter(function(p){ return p.d && !isNaN(p.v); });
-    if (punkty.length < 2) return;
+    if (wszystkie.length < 2) return;
 
-    var lo = parseFloat(w.dataset.lo), hi = parseFloat(w.dataset.hi);
-    var jedn = w.dataset.jedn || '';
+    var jedn = w.dataset.jedn || '', WYS = parseFloat(w.dataset.wys) || 230, SZER = 1000;
     var podp = w.querySelector('.podp'), linia = w.querySelector('.kursor-linia'),
         kropka = w.querySelector('.kursor-kropka'), svg = w.querySelector('svg');
     if (!podp || !svg) return;
-    var pData = podp.querySelector('.p-data'), pWart = podp.querySelector('.p-wart');
-    var czeka = 0;
+    var pData = podp.querySelector('.p-data'), pWart = podp.querySelector('.p-wart'),
+        wyp = svg.querySelector('.obszar-wyp'), lin = svg.querySelector('.obszar-linia'),
+        koniec = svg.querySelector('.obszar-koniec'),
+        osx = w.querySelectorAll('.wykres-osx span');
+    var punkty = wszystkie, lo = parseFloat(w.dataset.lo), hi = parseFloat(w.dataset.hi);
 
+    // Przerysowanie zakresu. Skalę liczymy od nowa dla widocznego wycinka -
+    // gdyby została z całości, miesięczny wykres byłby płaską kreską przez
+    // środek i nie pokazywałby tego, po co się go otwiera.
+    function przerysuj(dni){
+      punkty = (dni > 0 && dni < wszystkie.length)
+        ? wszystkie.slice(wszystkie.length - dni) : wszystkie;
+      var v = punkty.map(function(p){ return p.v; });
+      var mn = Math.min.apply(null, v), mx = Math.max.apply(null, v);
+      var marg = (mx - mn) * 0.12 || (Math.abs(mx) * 0.05 || 1);
+      lo = mn - marg; hi = mx + marg;
+      var rozp = (hi - lo) || 1, krok = SZER / (punkty.length - 1);
+      var pkt = punkty.map(function(p, i){
+        return [i * krok, WYS - ((p.v - lo) / rozp) * WYS];
+      });
+      var d = sciezka(pkt, 0.22);
+      if (lin) lin.setAttribute('d', d);
+      if (wyp) wyp.setAttribute('d', d + ' L ' + SZER + ' ' + WYS + ' L 0 ' + WYS + ' Z');
+      if (koniec) {
+        koniec.setAttribute('cx', pkt[pkt.length-1][0].toFixed(1));
+        koniec.setAttribute('cy', pkt[pkt.length-1][1].toFixed(1));
+      }
+      if (osx.length === 2) {
+        osx[0].textContent = punkty[0].d;
+        osx[1].textContent = punkty[punkty.length-1].d;
+      }
+      schowaj();
+    }
+
+    // Pozycjonujemy transformem, nie left/top: przy ruchu myszy to jedyna
+    // droga, która nie wymusza przeliczania układu w każdej klatce.
+    var czeka = 0;
     function rusz(ev){
       if (czeka) return;
       czeka = requestAnimationFrame(function(){
@@ -546,24 +668,18 @@ SKRYPT_UI = """
     w.addEventListener('pointermove', rusz);
     w.addEventListener('pointerleave', schowaj);
     w.addEventListener('pointercancel', schowaj);
+
+    var pig = w.querySelector('.zakres');
+    if (pig) pig.addEventListener('click', function(ev){
+      var b = ev.target.closest('button');
+      if (!b) return;
+      pig.querySelectorAll('button').forEach(function(x){
+        x.setAttribute('aria-pressed', String(x === b));
+      });
+      przerysuj(parseInt(b.dataset.dni || '0', 10));
+    });
   }
   document.querySelectorAll('[data-wykres]').forEach(podepnij);
-
-  // ---- przełącznik zakresu -------------------------------------------
-  // Filtrujemy po stronie przeglądarki: dane i tak są już na stronie,
-  // więc odpytywanie serwera dodałoby opóźnienie bez żadnego zysku.
-  document.addEventListener('click', function(ev){
-    var b = ev.target.closest('.zakres button');
-    if (!b) return;
-    var grupa = b.closest('.zakres');
-    grupa.querySelectorAll('button').forEach(function(x){
-      x.setAttribute('aria-pressed', String(x === b));
-    });
-    var cel = document.querySelector(grupa.dataset.cel || '');
-    if (!cel) return;
-    var dni = parseInt(b.dataset.dni || '0', 10);
-    cel.dispatchEvent(new CustomEvent('zakres', { detail: { dni: dni } }));
-  });
 })();
 </script>
 """

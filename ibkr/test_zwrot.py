@@ -248,3 +248,37 @@ def test_podsumowanie_na_dlugim_szeregu():
     assert p["wystarczajaco"] is True
     assert p["twr"] is not None and p["obsuniecia"]["dostepne"] is True
     assert -1.0 < p["twr"] < 5.0
+
+
+def test_krzywa_twr_konczy_sie_dokladnie_na_twr():
+    """Najważniejszy test tej krzywej. Jest rysowana obok wykresu NAV i ma
+    prawo istnieć tylko wtedy, gdy jej koniec zgadza się co do grosza
+    z liczbą w kaflu - dwie różne odpowiedzi na to samo pytanie na jednym
+    ekranie są gorsze niż jedna."""
+    s = _szereg([100.0, 104.0, 101.0, 109.0, 112.0])
+    k = zwrot.krzywa_twr(s)
+    assert len(k) == len(s)
+    assert abs(k[0][1] - 100.0) < 1e-12
+    assert abs(k[-1][1] / 100.0 - 1.0 - zwrot.twr(s)) < 1e-12
+
+
+def test_krzywa_twr_ignoruje_przelew_ktory_podnosi_nav():
+    """Sedno tej krzywej: wpłata podnosi wartość konta i NIE MOŻE podnosić
+    wyniku. Bez tego wykres pokazywałby zamożność, nie skuteczność."""
+    s = _szereg([100.0, 100.0, 200.0, 200.0])
+    przep = {s[2]["data"]: 100.0}
+    k = zwrot.krzywa_twr(s, przep)
+    assert all(abs(v - 100.0) < 1e-9 for _, v in k), k    # płasko mimo podwojenia NAV
+    bez = zwrot.krzywa_twr(s)
+    assert bez[-1][1] > 190.0                              # bez korekty: fałszywe +100%
+
+
+def test_krzywa_twr_zaczyna_sie_od_daty_pierwszego_dnia():
+    s = _szereg([100.0, 101.0, 102.0])
+    k = zwrot.krzywa_twr(s)
+    assert k[0][0] == s[0]["data"] and k[-1][0] == s[-1]["data"]
+
+
+def test_krzywa_twr_bez_historii_jest_pusta():
+    assert zwrot.krzywa_twr([]) == []
+    assert zwrot.krzywa_twr(_szereg([100.0])) == []

@@ -415,8 +415,15 @@ def _kafel_polityki(p: dict) -> tuple:
             f'{bez} bez poziomu · gdyby wszystkie zadziałały')
 
 
-def _kafle(p: dict, okresy: dict) -> str:
-    k = [("NAV", _pln(p["nav"]), "", ""),
+def _kafle(p: dict, okresy: dict, hist=None) -> str:
+    # Iskierka tylko przy NAV, bo tylko dla NAV mamy prawdziwy szereg dzienny.
+    # Dorysowanie jej przy pozostałych kaflach wyglądałoby spójniej i byłoby
+    # zmyślaniem - kafel „Gotówka" nie ma historii, z której dałoby się ją
+    # narysować.
+    isk = ""
+    if hist and len(hist) > 3:
+        isk = wykresy.iskierka([h["nav"] for h in hist[-90:]], szer=150, wys=38)
+    k = [("NAV", _pln(p["nav"]), "", "", isk),
          ("Zmiana dzienna", _proc(p["zmiana_nav_proc"]),
           _kl(p["zmiana_nav_proc"]), ""),
          ("Wartość pozycji", _pln(p["wartosc_pozycji"]), "",
@@ -436,9 +443,10 @@ def _kafle(p: dict, okresy: dict) -> str:
         k.append((etykieta, _proc(dane["proc"]), _kl(dane["proc"]),
                   f'od {dane["od"]} · {_pln(dane["kwota"])}'))
     return '<div class="kafle">' + "".join(
-        f'<div class="kafel"><div class="et">{e(t)}</div>'
-        f'<div class="w num {kl}">{w}</div>'
-        f'<div class="pod num">{pod}</div></div>' for t, w, kl, pod in k) + '</div>'
+        f'<div class="kafel"><div class="et">{e(x[0])}</div>'
+        f'<div class="w num {x[2]}">{x[1]}</div>'
+        f'<div class="pod num">{x[3]}</div>'
+        f'{x[4] if len(x) > 4 else ""}</div>' for x in k) + '</div>'
 
 
 def _tabela_pozycji(p: dict) -> str:
@@ -635,11 +643,11 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
 <div data-panel="przeglad">
   {pasek}
   <div class="karta"><h2>Podsumowanie<span class="obok">{e(p["kwartal"])} · stan na
-      <b>{e(p["data"])}</b></span></h2>{_kafle(p, okresy)}</div>
+      <b>{e(p["data"])}</b></span></h2>{_kafle(p, okresy, hist)}</div>
   <div class="karta" style="--op:60ms"><h2>Wartość konta w czasie<span class="obok">{len(hist)} dni ·
       od {e(hist[0]["data"]) if hist else "—"}</span></h2>
     <div class="tresc">{wykresy.obszar([(h["data"], h["nav"]) for h in hist],
-        wys=250, opis="Wartość konta")}</div></div>
+        wys=250, opis="Wartość konta", zakresy=True)}</div></div>
   <div class="siatka dwie">
     <div class="karta"><h2>Struktura portfela</h2>
       <div class="tresc">{wykresy.pierscien(udzialy,

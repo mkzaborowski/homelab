@@ -118,6 +118,12 @@ def _analityka(hist, pods) -> dict:
         "koncentracja": ryzyko.koncentracja(wartosci),
         "miesiace": zwrot.zwroty_miesieczne(hist, zwrot.przeplywy_z_operacji(ops)),
         "szereg": hist,
+        # Krzywa wyniku obok krzywej wartości konta. Bez niej panel pokazuje
+        # tylko NAV, a NAV rośnie także od przelewów - i akurat na tym
+        # portfelu niemal wyłącznie od nich.
+        "krzywa": zwrot.krzywa_twr(hist, zwrot.przeplywy_z_operacji(ops)),
+        "rozklad_zwrotow": ryzyko.rozklad(dzienne),
+        "zmiennosc_kroczaca": ryzyko.zmiennosc_kroczaca(z["zwroty"]),
         "uzgodnienie": {"ibkr": store.twr_ibkr()},
         "wklad": wklad,
         "czynniki": czynniki,

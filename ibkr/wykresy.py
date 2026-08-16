@@ -107,8 +107,12 @@ def iskierka(wartosci: list[float], kolor: str = AKCENT, szer: int = 120,
 #  wykres warstwowy z gradientem
 # --------------------------------------------------------------------------- #
 
+ZAKRESY = [("1M", 22), ("3M", 65), ("6M", 130), ("1R", 260), ("Całość", 0)]
+
+
 def obszar(szereg: list[tuple[str, float]], wys: int = 230, kolor: str = AKCENT,
-           opis: str = "", jednostka: str = "$", odniesienie: float | None = None) -> str:
+           opis: str = "", jednostka: str = "$", odniesienie: float | None = None,
+           zakresy: bool = False) -> str:
     """Główny wykres przebiegu: linia z gradientowym wypełnieniem pod spodem.
 
     Siatka jest celowo ledwo widoczna. Ma dać oku punkt odniesienia, a nie
@@ -144,8 +148,21 @@ def obszar(szereg: list[tuple[str, float]], wys: int = 230, kolor: str = AKCENT,
     # asynchronicznej dla czegoś, co i tak jest już na stronie.
     dane_json = "|".join(f"{d};{v:.2f}" for d, v in szereg)
 
+    # Przełącznik zakresu obsługujemy w przeglądarce, bo wszystkie punkty są
+    # już w atrybucie. Odpytywanie serwera dodałoby opóźnienie i stan do
+    # zsynchronizowania, nie dając w zamian ani jednej nowej danej.
+    pigulki = ""
+    if zakresy:
+        mozliwe = [(n, d) for n, d in ZAKRESY if not d or d < len(szereg)]
+        if len(mozliwe) > 1:
+            pigulki = '<div class="zakres">' + "".join(
+                f'<button type="button" data-dni="{d}" '
+                f'aria-pressed="{"true" if (n, d) == mozliwe[-1] else "false"}">{n}</button>'
+                for n, d in mozliwe) + '</div>'
+
     return f'''<div class="wykres" data-wykres data-punkty="{e(dane_json)}"
-     data-jedn="{e(jednostka)}" data-lo="{lo:.4f}" data-hi="{hi:.4f}">
+     data-jedn="{e(jednostka)}" data-lo="{lo:.4f}" data-hi="{hi:.4f}" data-wys="{wys}">
+{pigulki}
 <svg viewBox="0 0 {szer} {wys}" preserveAspectRatio="none" role="img"
      aria-label="{e(opis or "Przebieg wartości")}: od {jednostka}{wartosci[0]:,.0f} do {jednostka}{wartosci[-1]:,.0f}">
   <defs>
@@ -168,6 +185,192 @@ def obszar(szereg: list[tuple[str, float]], wys: int = 230, kolor: str = AKCENT,
 <div class="podp"><div class="p-data"></div><div class="p-wart num"></div></div>
 <div class="wykres-osx"><span>{e(szereg[0][0])}</span><span>{e(szereg[-1][0])}</span></div>
 </div>'''.replace(",", " ")
+
+
+# --------------------------------------------------------------------------- #
+#  kilka przebiegów na jednej osi
+# --------------------------------------------------------------------------- #
+
+def linie(serie: list[dict], wys: int = 230, jednostka: str = "",
+          opis: str = "", odniesienie: float | None = None) -> str:
+    """Kilka szeregów na wspólnej skali - portfel obok wzorców.
+
+    Wspólna skala jest tu warunkiem sensu: dwie osie Y pozwalają dobrać
+    zakresy tak, że dowolne dwa przebiegi wyglądają na zbieżne albo rozbieżne
+    na życzenie. Dlatego szeregi trzeba podawać już przeliczone na wspólną
+    bazę (indeks 100), a nie w oryginalnych jednostkach.
+
+    Pierwszy szereg jest wiodący: grubszy i w kolorze akcentu, reszta cieńsza
+    i przygaszona. Bez tej hierarchii oko nie wie, który przebieg jest
+    przedmiotem, a który tłem."""
+    serie = [s for s in serie if len(s.get("punkty") or []) >= 2]
+    if not serie:
+        return '<div class="pusto">Za mało danych na wykres.</div>'
+
+    wszystkie = [v for s in serie for _, v in s["punkty"]]
+    lo, hi = min(wszystkie), max(wszystkie)
+    if odniesienie is not None:
+        lo, hi = min(lo, odniesienie), max(hi, odniesienie)
+    margines = (hi - lo) * 0.10 or (abs(hi) * 0.05 or 1.0)
+    lo, hi = lo - margines, hi + margines
+    rozp = (hi - lo) or 1.0
+    szer = 1000
+    y = lambda v: wys - ((v - lo) / rozp) * wys            # noqa: E731
+
+    siatka = "".join(
+        f'<line x1="0" y1="{wys * u:.1f}" x2="{szer}" y2="{wys * u:.1f}" stroke="{SIATKA}"/>'
+        for u in (0.25, 0.5, 0.75))
+    odn = ""
+    if odniesienie is not None:
+        odn = (f'<line x1="0" y1="{y(odniesienie):.1f}" x2="{szer}" '
+               f'y2="{y(odniesienie):.1f}" stroke="{TEKST_SLABY}" stroke-dasharray="4 4"/>')
+
+    sciezki, legenda = [], []
+    for i, s in enumerate(serie):
+        pkt = s["punkty"]
+        krok = szer / (len(pkt) - 1)
+        kolor = s.get("kolor") or (AKCENT if i == 0 else PALETA[(i + 2) % len(PALETA)])
+        d = _sciezka_gladka([(j * krok, y(v)) for j, (_, v) in enumerate(pkt)])
+        sciezki.append(
+            f'<path class="obszar-linia" d="{d}" fill="none" stroke="{kolor}" '
+            f'stroke-width="{2.4 if i == 0 else 1.5}" stroke-linecap="round" '
+            f'stroke-linejoin="round" opacity="{1 if i == 0 else .72}" '
+            f'style="--op:{i * 90}ms"/>')
+        legenda.append(
+            f'<div class="leg-w"><i style="background:{kolor}"></i>'
+            f'<span class="leg-n">{e(s.get("nazwa") or "")}</span>'
+            f'<span class="leg-v num">{jednostka}{pkt[-1][1]:,.1f}</span></div>')
+
+    etyk = serie[0]["punkty"]
+    return (f'<div class="wykres">'
+            f'<svg viewBox="0 0 {szer} {wys}" preserveAspectRatio="none" role="img" '
+            f'aria-label="{e(opis or "Porównanie przebiegów")}">'
+            f'{siatka}{odn}{"".join(sciezki)}</svg>'
+            f'<div class="wykres-osx"><span>{e(etyk[0][0])}</span>'
+            f'<span>{e(etyk[-1][0])}</span></div>'
+            f'<div class="legenda-pozioma">{"".join(legenda)}</div></div>').replace(",", " ")
+
+
+# --------------------------------------------------------------------------- #
+#  histogram
+# --------------------------------------------------------------------------- #
+
+def histogram(kubelki: list[dict], znaczniki: list[dict] | None = None,
+              wys: int = 170, opis: str = "") -> str:
+    """Rozkład wartości w kubełkach, z pionowymi znacznikami progów.
+
+    Sens histogramu zwrotów jest właśnie w znacznikach: sam kształt mówi
+    „bywa różnie", dopiero linia VaR pokazuje, gdzie leży granica najgorszych
+    pięciu procent dni. Bez niej wykres jest ozdobą.
+
+    Kubełki kolorujemy stroną zera, nie jednym kolorem - rozkład zwrotów
+    czyta się przede wszystkim przez asymetrię, a ta ginie w monochromie."""
+    kubelki = kubelki or []
+    if not kubelki:
+        return '<div class="pusto">Brak danych.</div>'
+    naj = max(k["ile"] for k in kubelki) or 1
+    lo = min(k["od"] for k in kubelki)
+    hi = max(k["do"] for k in kubelki)
+    rozp = (hi - lo) or 1.0
+    szer_s = max(100.0 / len(kubelki) - 1.2, 1.2)
+
+    slupki = "".join(
+        f'<div class="hg-k" style="--h:{k["ile"] / naj * 100:.1f}%;--op:{i * 18}ms;'
+        f'--kol:{WZROST if k["od"] >= 0 else SPADEK}" '
+        f'title="{k["od"] * 100:+.2f}% … {k["do"] * 100:+.2f}%: {k["ile"]} dni"></div>'
+        for i, k in enumerate(kubelki))
+
+    zn = "".join(
+        f'<div class="hg-znacznik" style="--x:{(z["wartosc"] - lo) / rozp * 100:.2f}%;'
+        f'--kol:{z.get("kolor", SPADEK)}">'
+        f'<span>{e(z["etykieta"])}</span></div>'
+        for z in (znaczniki or [])
+        if lo <= z["wartosc"] <= hi)
+
+    return (f'<div class="hg" role="img" aria-label="{e(opis or "Rozkład wartości")}">'
+            f'<div class="hg-pole" style="height:{wys}px;--szer:{szer_s:.2f}%">'
+            f'{slupki}{zn}</div>'
+            f'<div class="wykres-osx"><span>{lo * 100:+.1f}%</span>'
+            f'<span>{hi * 100:+.1f}%</span></div></div>')
+
+
+# --------------------------------------------------------------------------- #
+#  tornado - wpływ scenariuszy wokół zera
+# --------------------------------------------------------------------------- #
+
+def tornado(dane: list[dict], fmt=lambda v: f"{v:+.1f}%") -> str:
+    """Słupki rozchodzące się w obie strony od pionowej osi zera.
+
+    Dla scenariuszy to jedyny układ, który nie kłamie: strata i zysk mają
+    wspólny punkt odniesienia i tę samą skalę, więc asymetria ryzyka jest
+    widoczna od razu. Ranking pionowy w jedną stronę wymusza czytanie liczb.
+
+    Skala do najmocniejszego wpływu w obie strony - najgorszy scenariusz
+    dotyka krawędzi, reszta jest z nim porównywalna."""
+    dane = [d for d in dane if d.get("wartosc") is not None]
+    if not dane:
+        return '<div class="pusto">Brak danych.</div>'
+    naj = max(abs(d["wartosc"]) for d in dane) or 1.0
+    w = []
+    for i, d in enumerate(dane):
+        v = d["wartosc"]
+        szer = abs(v) / naj * 50           # połowa szerokości pola na stronę
+        kolor = WZROST if v >= 0 else SPADEK
+        lewo = 50 if v >= 0 else 50 - szer
+        w.append(
+            f'<div class="tor-w" style="--op:{i * 40}ms">'
+            f'<span class="tor-n">{e(str(d["nazwa"]))}</span>'
+            f'<span class="tor-t"><i style="--lewo:{lewo:.2f}%;--szer:{szer:.2f}%;'
+            f'background:{kolor}"></i></span>'
+            f'<span class="tor-v num {"up" if v >= 0 else "down"}">{fmt(v)}</span></div>')
+    return f'<div class="tor"><div class="tor-os"></div>{"".join(w)}</div>'
+
+
+# --------------------------------------------------------------------------- #
+#  rozrzut
+# --------------------------------------------------------------------------- #
+
+def rozrzut(punkty: list[dict], os_x: str = "", os_y: str = "",
+            wys: int = 240, przekatna: bool = True, opis: str = "") -> str:
+    """Punkty w układzie dwóch wielkości, z przekątną równowagi.
+
+    Cała treść tego wykresu leży w odległości od przekątnej: na niej pozycja
+    wnosi tyle ryzyka, ile kapitału. Powyżej - wnosi więcej, niż waży.
+    Sama tabela z krotnościami mówi to samo, ale trzeba ją przeczytać
+    wiersz po wierszu; tutaj odstające widać w ułamku sekundy."""
+    punkty = [p for p in punkty if p.get("x") is not None and p.get("y") is not None]
+    if not punkty:
+        return '<div class="pusto">Brak danych.</div>'
+    maks = max(max(p["x"] for p in punkty), max(p["y"] for p in punkty)) * 1.12 or 1.0
+    szer = 1000
+    px = lambda v: v / maks * szer                          # noqa: E731
+    py = lambda v: wys - v / maks * wys                     # noqa: E731
+
+    siatka = "".join(
+        f'<line x1="0" y1="{wys * u:.1f}" x2="{szer}" y2="{wys * u:.1f}" stroke="{SIATKA}"/>'
+        f'<line x1="{szer * u:.1f}" y1="0" x2="{szer * u:.1f}" y2="{wys}" stroke="{SIATKA}"/>'
+        for u in (0.25, 0.5, 0.75))
+    prz = (f'<line x1="0" y1="{wys}" x2="{szer}" y2="0" stroke="{TEKST_SLABY}" '
+           f'stroke-dasharray="5 5"/>') if przekatna else ""
+
+    kropki_ = "".join(
+        f'<g class="rz-p" style="--op:{i * 30}ms">'
+        f'<circle cx="{px(p["x"]):.1f}" cy="{py(p["y"]):.1f}" '
+        f'r="{6 if p["y"] > p["x"] else 5}" fill="{SPADEK if p["y"] > p["x"] * 1.15 else AKCENT}" '
+        f'fill-opacity=".82"><title>{e(str(p.get("etykieta") or ""))}: '
+        f'{p["x"]:.1f}% kapitału, {p["y"]:.1f}% ryzyka</title></circle>'
+        f'</g>' for i, p in enumerate(punkty))
+
+    # podpisujemy tylko odstające - reszta zlałaby się w plamę tekstu
+    odstajace = sorted(punkty, key=lambda p: -(p["y"] - p["x"]))[:5]
+    etyk = "".join(
+        f'<text class="rz-et" x="{px(p["x"]) + 9:.1f}" y="{py(p["y"]) + 4:.1f}" '
+        f'fill="{TEKST_SLABY}">{e(str(p.get("etykieta") or ""))}</text>'
+        for p in odstajace)
+
+    return (f'<div class="rz"><svg viewBox="0 0 {szer} {wys}" role="img" '
+            f'aria-label="{e(opis or "Rozrzut")}">{siatka}{prz}{kropki_}{etyk}</svg>'
+            f'<div class="rz-osie"><span>{e(os_x)}</span><span>{e(os_y)}</span></div></div>')
 
 
 # --------------------------------------------------------------------------- #
@@ -220,7 +423,7 @@ def pierscien(dane: list[tuple[str, float]], srodek_gora: str = "",
             f'<svg viewBox="0 0 {rozmiar} {rozmiar}" role="img" '
             f'aria-label="Udziały: ' + e(", ".join(f"{n} {v/suma*100:.0f}%" for n, v in dane[:5])) + '">'
             f'<circle cx="{rozmiar/2}" cy="{rozmiar/2}" r="{r:.1f}" fill="none" '
-            f'stroke="rgba(255,255,255,.05)" stroke-width="{gr}"/>'
+            f'stroke="{SIATKA}" stroke-width="{gr}"/>'
             + "".join(seg) + f'</svg>{srodek}</div>'
             f'<div class="pier-legenda">' + "".join(legenda) + '</div></div>')
 
@@ -345,7 +548,7 @@ def wskaznik(wartosc: float, minimum: float = 0.0, maksimum: float = 1.0,
             f'<svg viewBox="0 0 {rozmiar} {rozmiar/2 + 12}" role="img" '
             f'aria-label="{e(etykieta)}: {u*100:.0f} procent">'
             f'<path d="M 14 {rozmiar/2} A {r:.1f} {r:.1f} 0 0 1 {rozmiar-14} {rozmiar/2}" '
-            f'fill="none" stroke="rgba(255,255,255,.07)" stroke-width="11" stroke-linecap="round"/>'
+            f'fill="none" stroke="{SIATKA}" stroke-width="11" stroke-linecap="round"/>'
             f'<path class="wsk-luk" d="M 14 {rozmiar/2} A {r:.1f} {r:.1f} 0 0 1 '
             f'{rozmiar-14} {rozmiar/2}" fill="none" stroke="{kolor}" stroke-width="11" '
             f'stroke-linecap="round" stroke-dasharray="{obwod:.1f}" '

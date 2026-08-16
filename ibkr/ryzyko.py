@@ -140,6 +140,49 @@ def cvar(zwroty: list[float], poziom: float = 0.95) -> float | None:
     return _sr(ogon) if ogon else v
 
 
+def rozklad(zwroty: list[float], kubelkow: int = 26) -> list[dict]:
+    """Zwroty dzienne pogrupowane w kubełki równej szerokości.
+
+    Równa szerokość, nie równa liczność: przy kwantylach ogon zlewa się
+    z resztą i znika dokładnie ta informacja, po którą się tu przychodzi.
+    Zakres domykamy symetrycznie wokół zera, żeby asymetria rozkładu była
+    widoczna jako asymetria obrazka, a nie jako przesunięcie ramki."""
+    if len(zwroty) < 10:
+        return []
+    kres = max(abs(min(zwroty)), abs(max(zwroty)))
+    if kres <= 0:
+        return []
+    lo, hi = -kres, kres
+    szer = (hi - lo) / kubelkow
+    licznik = [0] * kubelkow
+    for r in zwroty:
+        i = int((r - lo) / szer)
+        licznik[min(max(i, 0), kubelkow - 1)] += 1
+    return [{"od": lo + i * szer, "do": lo + (i + 1) * szer, "ile": n}
+            for i, n in enumerate(licznik)]
+
+
+def zmiennosc_kroczaca(zwroty: list[tuple[str, float]], okno: int = 30) -> list[tuple[str, float]]:
+    """Zmienność roczna liczona w oknie przesuwnym.
+
+    Jedna liczba za cały okres uśrednia spokój z burzą i nie mówi, w którą
+    stronę idzie ryzyko. Ta krzywa pokazuje, czy portfel się właśnie
+    uspokaja, czy rozkręca - a to jest pytanie decyzyjne, w przeciwieństwie
+    do średniej za rok.
+
+    Okno 30 sesji to kompromis: krótsze skacze od pojedynczych dni,
+    dłuższe reaguje z opóźnieniem, którego nie da się już użyć."""
+    if len(zwroty) < okno + 5:
+        return []
+    out = []
+    for i in range(okno, len(zwroty) + 1):
+        wycinek = [x for _, x in zwroty[i - okno:i]]
+        s = odchylenie(wycinek)
+        if s is not None:
+            out.append((zwroty[i - 1][0], s * math.sqrt(DNI_HANDLOWE)))
+    return out
+
+
 # --------------------------------------------------------------------------- #
 #  beta i regresja
 # --------------------------------------------------------------------------- #

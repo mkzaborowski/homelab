@@ -65,8 +65,8 @@ def wykres_obsuniecia(szereg: list[dict], wys: int = 150) -> str:
     return f'''<svg viewBox="0 0 {szer} {wys}" preserveAspectRatio="none"
      style="width:100%;height:{wys}px;display:block" role="img"
      aria-label="Obsunięcie od szczytu, najgłębsze {naj * 100:.1f} procent">
-  <polygon points="0,0 {pkt} {szer},0" fill="rgba(248,81,73,.16)"/>
-  <polyline points="{pkt}" fill="none" stroke="#f85149" stroke-width="1.6"/>
+  <polygon points="0,0 {pkt} {szer},0" fill="var(--spadek)" fill-opacity=".16"/>
+  <polyline points="{pkt}" fill="none" stroke="var(--spadek)" stroke-width="1.6"/>
 </svg>
 <div class="mini" style="display:flex;justify-content:space-between;margin-top:6px">
   <span>{e(szereg[0]["data"])}</span>
@@ -183,7 +183,7 @@ def pasek_udzialow(dane: list[dict], ile: int = 10) -> str:
             f'<span style="background:var(--linia);border-radius:4px;height:16px;'
             f'position:relative;overflow:hidden">'
             f'<i style="position:absolute;inset:0 auto 0 0;width:{szer:.1f}%;'
-            f'background:linear-gradient(90deg,#2f81f7,#58a6ff);border-radius:4px;'
+            f'background:linear-gradient(90deg,var(--akcent),var(--akcent-2));border-radius:4px;'
             f'display:block"></i></span>'
             f'<span class="num mini">{d["udzial"]:.1f}%</span></div>')
     return "".join(w)
@@ -195,7 +195,17 @@ def zakladka_ekspozycja(a: dict | None) -> str:
                 '<div class="tresc uwaga">Brak klasyfikacji.</div></div></div>')
     ek = a["ekspozycje"]
     return f'''<div data-panel="ekspozycja" class="panel-ukryty">
-  <div class="karta"><h2>Wrażliwość na czynniki rynkowe<span class="obok">regresja
+  <div class="karta"><h2>Bety czynnikowe<span class="obok">ruch portfela na 1% ruchu
+      czynnika</span></h2>
+    <div class="tresc">{wykresy.tornado(
+        [{"nazwa": f'{c["symbol"]} · {c["opis"]}'[:34], "wartosc": c["beta"]}
+         for c in sorted(a.get("czynniki") or [], key=lambda c: c["beta"])],
+        fmt=lambda v: f"{v:+.2f}")}</div>
+    <div class="tresc"><p class="uwaga">Beta ujemna znaczy, że portfel idzie
+      przeciwnie do czynnika. Sama wysokość słupka nie mówi jednak, czy zależność
+      jest istotna — to pokazuje R² w tabeli niżej.</p></div>
+  </div>
+  <div class="karta" style="--op:60ms"><h2>Wrażliwość na czynniki rynkowe<span class="obok">regresja
       zwrotów dziennych</span></h2>{tabela_czynnikow(a.get("czynniki"))}</div>
   <div class="siatka dwie">
     <div class="karta" style="--op:80ms"><h2>Tematy<span class="obok">udział w wartości</span></h2>
@@ -218,6 +228,25 @@ def zakladka_ekspozycja(a: dict | None) -> str:
 def _skladniki(lista: list[dict]) -> str:
     """Skrót w rodzaju „QQQ −22% · SPY −15%" do kolumny opisowej."""
     return " · ".join(f'{k["czynnik"]} {k["zmiana"]:+.0%}' for k in lista)
+
+
+def porownywalne_wstrzasy(pojedyncze: list[dict], cel: float = -0.10) -> list[dict]:
+    """Po jednym wstrząsie na czynnik, o tej samej wielkości ruchu.
+
+    Siatka wstrząsów jest różna dla różnych czynników - srebro testujemy przy
+    30%, obligacje przy 5%, bo takie ruchy są dla nich realne. Do wykresu
+    porównawczego trzeba jednak ruchu jednolitego: inaczej długość słupka
+    miesza wrażliwość portfela z arbitralnym wyborem skali testu, a to jest
+    dokładnie ten rodzaj wykresu, który wygląda na wniosek i nim nie jest."""
+    wg_czynnika: dict[str, dict] = {}
+    for x in pojedyncze:
+        stary = wg_czynnika.get(x["czynnik"])
+        if stary is None or abs(x["zmiana"] - cel) < abs(stary["zmiana"] - cel):
+            wg_czynnika[x["czynnik"]] = x
+    return sorted(
+        ({"nazwa": f'{x["czynnik"]} · {x["opis"]}'[:34],
+          "wartosc": x["wplyw_proc"] * 100} for x in wg_czynnika.values()),
+        key=lambda d: d["wartosc"])
 
 
 def zakladka_scenariusze(s: dict | None) -> str:
@@ -244,7 +273,19 @@ def zakladka_scenariusze(s: dict | None) -> str:
     przez bety z ostatniego roku. W prawdziwym krachu korelacje rosną, a bety się
     rozjeżdżają — model zaniża straty w scenariuszach najgłębszych. Opcje wchodzą
     przez deltę i gammę, co przy dużych ruchach też jest przybliżeniem.</div>
-  <div class="karta"><h2>Sytuacje rynkowe<span class="obok">kilka wstrząsów
+  <div class="karta"><h2>Wpływ scenariuszy na NAV<span class="obok">w procentach
+      wartości konta</span></h2>
+    <div class="tresc">{wykresy.tornado(
+        [{"nazwa": x["nazwa"], "wartosc": x["wplyw_proc"] * 100} for x in s["polaczone"]])}</div>
+  </div>
+  <div class="karta" style="--op:60ms"><h2>Wrażliwość na pojedyncze czynniki<span
+      class="obok">jednolity wstrząs −10%</span></h2>
+    <div class="tresc">{wykresy.tornado(porownywalne_wstrzasy(s["pojedyncze"]))}</div>
+    <div class="tresc"><p class="uwaga">Wszystkie czynniki przy tym samym ruchu
+      −10%, żeby dało się je porównać między sobą. Pełną siatkę wstrząsów
+      zawiera tabela niżej.</p></div>
+  </div>
+  <div class="karta" style="--op:120ms"><h2>Sytuacje rynkowe<span class="obok">kilka wstrząsów
       naraz</span></h2>
     <div class="przewin"><table><thead><tr><th>Scenariusz</th>
       <th class="l">Wpływ</th><th class="l">% NAV</th><th class="l">NAV po</th>
@@ -315,13 +356,22 @@ def zakladka_wynik(a: dict | None) -> str:
     <div class="kafle">{kafle}</div>
     {naiwny}{wiersz_uzg}
   </div>
-  <div class="karta" style="--op:60ms"><h2>Wartość konta<span class="obok">{len(a["szereg"])} dni</span></h2>
+  <div class="karta" style="--op:60ms"><h2>Krzywa wyniku<span class="obok">indeks,
+      start = 100</span></h2>
+    <div class="tresc">{wykresy.obszar(a.get("krzywa") or [], jednostka="",
+        odniesienie=100.0, zakresy=True, opis="Skumulowany zwrot ważony czasem")}</div>
+    <div class="tresc"><p class="uwaga">Ta krzywa pokazuje sam wynik inwestycyjny:
+      przelewy są z niej wyczyszczone, więc każdy jej ruch to rynek albo decyzja,
+      nigdy wpłata. Kreska na wysokości 100 to punkt wyjścia — tylko tę krzywą
+      wolno położyć obok indeksu.</p></div></div>
+  <div class="karta" style="--op:120ms"><h2>Wartość konta<span class="obok">{len(a["szereg"])} dni ·
+      z przelewami</span></h2>
     <div class="tresc">{wykresy.obszar([(w["data"], w["nav"]) for w in a["szereg"]],
-        opis="Wartość konta")}</div></div>
-  <div class="karta" style="--op:120ms"><h2>Obsunięcie od szczytu<span class="obok">odległość od
+        opis="Wartość konta", zakresy=True)}</div></div>
+  <div class="karta" style="--op:180ms"><h2>Obsunięcie od szczytu<span class="obok">odległość od
       najwyższej dotąd wartości</span></h2>
     <div class="tresc">{wykres_obsuniecia(a["szereg"])}</div></div>
-  <div class="karta" style="--op:180ms"><h2>Zwroty miesiąc po miesiącu</h2>
+  <div class="karta" style="--op:240ms"><h2>Zwroty miesiąc po miesiącu</h2>
     <div class="tresc">{wykresy.slupki_pionowe(
         [(m["miesiac"], m["zwrot"] * 100) for m in (a.get("miesiace") or [])])}</div>
     {siatka_miesiecy(a.get("miesiace") or [])}</div>
@@ -388,8 +438,42 @@ def zakladka_ryzyko(a: dict | None) -> str:
       ogony, więc normalność zaniżałaby stratę dokładnie tam, gdzie to najbardziej
       kosztuje.</p></div>
   </div>
+  <div class="karta" style="--op:60ms"><h2>Rozkład zwrotów dziennych<span class="obok">{
+      r["obserwacji"]} sesji</span></h2>
+    <div class="tresc">{wykresy.histogram(a.get("rozklad_zwrotow") or [], znaczniki=[
+        z for z in (
+            {"wartosc": r.get("var95"), "etykieta": "VaR 95%", "kolor": "var(--uwaga)"},
+            {"wartosc": r.get("cvar95"), "etykieta": "CVaR 95%", "kolor": "var(--spadek)"},
+            {"wartosc": r.get("var99"), "etykieta": "VaR 99%", "kolor": "var(--spadek)"},
+        ) if z["wartosc"] is not None], opis="Rozkład dziennych stóp zwrotu")}</div>
+    <div class="tresc"><p class="uwaga">Każdy słupek to liczba sesji, które skończyły
+      się zwrotem z danego przedziału. Ramka jest symetryczna wokół zera, więc
+      przechył rozkładu widać jako przechył obrazka. Pionowe linie zaznaczają
+      progi z kafli powyżej — dopiero z nimi ten wykres o czymś mówi.</p></div>
+  </div>
+  <div class="karta" style="--op:120ms"><h2>Zmienność w oknie 30 sesji<span class="obok">w skali
+      roku</span></h2>
+    <div class="tresc">{wykresy.obszar(
+        [(d, v * 100) for d, v in (a.get("zmiennosc_kroczaca") or [])],
+        wys=190, jednostka="", opis="Zmienność krocząca",
+        odniesienie=(r["zmiennosc"] * 100) if r.get("zmiennosc") else None,
+        zakresy=True)}</div>
+    <div class="tresc"><p class="uwaga">Jedna liczba za cały okres uśrednia spokój
+      z burzą. Ta krzywa mówi, w którą stronę ryzyko właśnie idzie; przerywana
+      linia to średnia z całej historii.</p></div>
+  </div>
   <div class="karta"><h2>Koncentracja kapitału</h2>
     <div class="kafle">{kafle_konc}</div>{komentarz_konc}
+  </div>
+  <div class="karta"><h2>Kapitał kontra ryzyko<span class="obok">pozycja po pozycji</span></h2>
+    <div class="tresc">{wykresy.rozrzut(
+        [{"x": p["waga"] * 100, "y": p["udzial_w_ryzyku"] * 100, "etykieta": p["symbol"]}
+         for p in ((a.get("wklad") or {}).get("pozycje") or [])],
+        os_x="udział w kapitale →", os_y="↑ udział w ryzyku",
+        opis="Udział w kapitale wobec udziału w ryzyku")}</div>
+    <div class="tresc"><p class="uwaga">Przekątna to równowaga: na niej pozycja
+      wnosi tyle ryzyka, ile kapitału. Punkty nad nią pracują ciężej, niż ważą —
+      i to one decydują o zmienności całości.</p></div>
   </div>
   <div class="karta"><h2>Wkład do ryzyka<span class="obok">udział w zmienności
       wobec udziału w kapitale</span></h2>{tabela_wkladu(a.get("wklad"))}

@@ -125,6 +125,27 @@ def twr(szereg: list[dict], przeplywy: dict[str, float] | None = None) -> float 
     return iloczyn - 1.0
 
 
+def krzywa_twr(szereg: list[dict], przeplywy: dict[str, float] | None = None,
+               baza: float = 100.0) -> list[tuple[str, float]]:
+    """Skumulowany TWR jako indeks od wspólnej bazy.
+
+    To jest krzywa, którą wolno położyć obok indeksu giełdowego - w
+    przeciwieństwie do samego NAV, który rośnie także od wpłat. Przy tym
+    portfelu różnica jest drastyczna: wartość konta urosła o kilkadziesiąt
+    razy, ale prawie wszystko to przelewy, a wynik inwestycyjny to 40%.
+    Wykres NAV odpowiada na pytanie „ile mam", ten na pytanie „ile zarobiłem".
+    """
+    r = zwroty_dzienne(szereg, przeplywy)
+    if not r:
+        return []
+    poziom = baza
+    out = [(szereg[0]["data"], baza)]
+    for data, x in r:
+        poziom *= (1.0 + x)
+        out.append((data, poziom))
+    return out
+
+
 def modified_dietz(nav_poczatek: float, nav_koniec: float,
                    przeplywy: list[tuple[str, float]], od: str, do: str) -> float | None:
     """Przybliżenie TWR, gdy nie znamy godziny przepływu.

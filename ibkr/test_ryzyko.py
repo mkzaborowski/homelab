@@ -261,3 +261,59 @@ def test_wszystkie_o_podobnej_dlugosci_nikogo_nie_wykluczaja():
     assert w["pominiete"] == []
     assert w["instrumentow"] == 5
     assert abs(w["udzial_objety"] - 1.0) < 1e-9
+
+
+def test_rozklad_nie_gubi_ani_jednej_obserwacji():
+    """Histogram, który gubi dni, kłamie o kształcie ogona - a ogon jest
+    jedynym powodem, dla którego się go rysuje."""
+    import random
+    random.seed(11)
+    z = [random.gauss(0.001, 0.02) for _ in range(400)]
+    k = ryzyko.rozklad(z)
+    assert sum(x["ile"] for x in k) == len(z)
+
+
+def test_rozklad_ma_ramke_symetryczna_wokol_zera():
+    """Asymetria rozkładu ma być widoczna jako asymetria obrazka. Przy ramce
+    dopasowanej do skrajnych wartości przesunięcie ramki maskuje przechył
+    danych i histogram wygląda na wyśrodkowany zawsze."""
+    z = [-0.09] + [0.004] * 60 + [0.02]
+    k = ryzyko.rozklad(z)
+    assert abs(k[0]["od"] + k[-1]["do"]) < 1e-12
+    assert k[0]["ile"] == 1                                # strata na samym brzegu
+    assert sum(x["ile"] for x in k[:len(k) // 2]) < sum(x["ile"] for x in k[len(k) // 2:])
+
+
+def test_rozklad_odmawia_przy_garstce_danych():
+    assert ryzyko.rozklad([0.01, -0.02, 0.005]) == []
+
+
+def test_rozklad_bez_zadnego_ruchu_nie_dzieli_przez_zero():
+    assert ryzyko.rozklad([0.0] * 40) == []
+
+
+def test_zmiennosc_kroczaca_ma_dlugosc_szeregu_minus_okno():
+    import random
+    random.seed(12)
+    z = [(f"d{i}", random.gauss(0, 0.015)) for i in range(120)]
+    k = ryzyko.zmiennosc_kroczaca(z, okno=30)
+    assert len(k) == len(z) - 29
+    assert k[0][0] == "d29" and k[-1][0] == "d119"
+
+
+def test_zmiennosc_kroczaca_wykrywa_burze_ktora_srednia_rozmywa():
+    """Po to jest ta krzywa. Spokojny rok z jednym burzliwym miesiącem ma
+    przyzwoitą średnią; dopiero okno pokazuje, że przez trzydzieści sesji
+    ryzyko było wielokrotnie wyższe."""
+    import random
+    random.seed(13)
+    spokoj = [(f"a{i}", random.gauss(0, 0.004)) for i in range(120)]
+    burza = [(f"b{i}", random.gauss(0, 0.040)) for i in range(40)]
+    k = ryzyko.zmiennosc_kroczaca(spokoj + burza, okno=30)
+    calosc = ryzyko.zmiennosc([x for _, x in spokoj + burza])
+    assert max(v for _, v in k) > 3 * min(v for _, v in k)
+    assert max(v for _, v in k) > 1.8 * calosc
+
+
+def test_zmiennosc_kroczaca_odmawia_przy_krotkiej_historii():
+    assert ryzyko.zmiennosc_kroczaca([(f"d{i}", 0.01) for i in range(30)], okno=30) == []
