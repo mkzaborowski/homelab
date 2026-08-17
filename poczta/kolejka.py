@@ -45,6 +45,21 @@ def przebieg(ile: int = 20, dostawca: wysylka.Dostawca | None = None,
     Nie rzuca wyjątkami: nieudany list zapisuje błąd i idzie dalej. Jeden zły
     adres nie może zatrzymać kolejki dla wszystkich pozostałych."""
     d = dostawca or wysylka.dostawca()
+
+    # BRAK KONFIGURACJI NADAWCY NIE JEST BŁĘDEM LISTU. Sprawdzamy to raz, przed
+    # wzięciem czegokolwiek z kolejki, i wychodzimy bez dotykania wiadomości.
+    #
+    # Wcześniej każdy list zaliczał tu próbę i po piątej przepadał - a to jest
+    # dokładnie odwrotność tego, po co jest kolejka. Nikt jeszcze nie próbował
+    # niczego wysłać: nie było połączenia z serwerem, nie było odmowy, nie ma
+    # czego liczyć jako nieudanej próby. Poczta ma poczekać, aż hasło trafi do
+    # konfiguracji, i wyjść wtedy w komplecie.
+    ok, czego_brak = d.skonfigurowany()
+    if not ok:
+        czeka = len(store.do_wyslania(1))
+        return {"wziete": 0, "wyslane": 0, "chwilowe": 0, "trwale": 0,
+                "pominiete": 0, "wstrzymane": czeka, "powod": czego_brak}
+
     listy = store.do_wyslania(ile)
     wynik = {"wziete": len(listy), "wyslane": 0, "chwilowe": 0, "trwale": 0,
              "pominiete": 0}
@@ -85,6 +100,9 @@ def przebieg(ile: int = 20, dostawca: wysylka.Dostawca | None = None,
 
 
 def opis_przebiegu(w: dict) -> str:
+    if w.get("powod"):
+        return (f"wstrzymane — {w['powod']}"
+                + (f" ({w['wstrzymane']} w kolejce)" if w.get("wstrzymane") else ""))
     if not w["wziete"]:
         return "kolejka pusta"
     czesci = [f"wysłano {w['wyslane']}/{w['wziete']}"]

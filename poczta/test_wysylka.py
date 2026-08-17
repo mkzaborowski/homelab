@@ -325,3 +325,52 @@ def test_walidacja_adresu_przepuszcza_normalne():
     for dobry in ("jan@example.com", "jan.kowalski+tag@sub.example.co.uk",
                   "biuro@ochronazklasa.pl", "k@a.pl"):
         assert wysylka.poprawny_adres(dobry), dobry
+
+
+class Nieskonfigurowany(wysylka.Dostawca):
+    nazwa = "test"
+
+    def skonfigurowany(self):
+        return False, "brakuje: SMTP_USER, SMTP_PASS"
+
+    def wyslij(self, w):
+        raise AssertionError("nie wolno próbować bez konfiguracji nadawcy")
+
+
+def test_brak_konfiguracji_nadawcy_nie_zuzywa_prob():
+    """Znalezione testem przelotowym na serwerze: przed poprawką każdy list
+    zaliczał tu próbę i po piątej przepadał — czyli odwrotność tego, po co
+    jest kolejka. Nikt niczego nie próbował wysłać: nie było połączenia,
+    nie było odmowy, nie ma czego liczyć jako nieudanej próby."""
+    s = _serwis()
+    store.zakolejkuj(s, "jan@example.com", "T", "C")
+    for _ in range(store.PROBY + 2):
+        w = kolejka.przebieg(dostawca=Nieskonfigurowany(), spij=lambda _: None)
+    x = store.historia(s)[0]
+    assert x["stan"] == "czeka", "list przepadł, choć nigdy nie próbowano go wysłać"
+    assert x["prob"] == 0
+    assert w["wstrzymane"] == 1 and "SMTP_USER" in w["powod"]
+
+
+def test_poczta_wychodzi_w_komplecie_gdy_haslo_wreszcie_trafi_do_konfiguracji():
+    """Sedno poprzedniego testu: listy mają poczekać i wyjść, a nie przepaść."""
+    s = _serwis()
+    for i in range(3):
+        store.zakolejkuj(s, f"jan{i}@example.com", f"T{i}", "C")
+    for _ in range(4):
+        kolejka.przebieg(dostawca=Nieskonfigurowany(), spij=lambda _: None)
+
+    d = Udany()
+    w = kolejka.przebieg(dostawca=d, spij=lambda _: None)
+    assert w["wyslane"] == 3 and len(d.wyslane) == 3
+    assert all(x["stan"] == "wyslany" for x in store.historia(s))
+
+
+def test_opis_wstrzymania_mowi_czego_brakuje():
+    """W logu przebiegów ma stać przyczyna, nie „kolejka pusta" — inaczej
+    wygląda to na brak poczty, a nie na brak hasła."""
+    s = _serwis()
+    store.zakolejkuj(s, "jan@example.com", "T", "C")
+    w = kolejka.przebieg(dostawca=Nieskonfigurowany(), spij=lambda _: None)
+    opis = kolejka.opis_przebiegu(w)
+    assert "wstrzymane" in opis and "SMTP_USER" in opis
