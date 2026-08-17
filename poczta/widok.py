@@ -308,7 +308,7 @@ def _wykluczenia(s: dict, lista: list[dict]) -> str:
 
 
 def _przeglad(s: dict | None, stat: dict, nadawca: str, klucz_jawny: str,
-              serwisy_: list[dict], historia: list[dict]) -> str:
+              serwisy_: list[dict], wszystkie: list[dict]) -> str:
     kafle = "".join([
         _kafel("Sent (24 h)", stat["doba"], "up" if stat["doba"] else "mut", ""),
         _kafel("In queue", stat["czeka"], "mut", "waiting for the next run"),
@@ -322,7 +322,7 @@ def _przeglad(s: dict | None, stat: dict, nadawca: str, klucz_jawny: str,
         f'<td><code>{e(x["serwis_kod"])}</code></td>'
         f'<td class="tyk">{e(x["do_email"])}</td>'
         f'<td>{_skrot(x["temat"], 46)}</td>'
-        f'<td>{_plakietka(x["stan"])}</td></tr>' for x in historia[:12])
+        f'<td>{_plakietka(x["stan"])}</td></tr>' for x in wszystkie)
     return f'''<div data-panel="przeglad">
   <div class="karta"><h2>Delivery<span class="obok">{e(nadawca)}</span></h2>
     <div class="kafle">{kafle}</div>
@@ -386,8 +386,9 @@ DODATKOWY_STYL = """
 .siatka-form input:focus, .tresc input:focus, .tresc textarea:focus {
   outline: 0; border-color: var(--dane);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--dane) 20%, transparent); }
-.ptaszek { display: flex; align-items: center; gap: 8px; padding-bottom: 9px; }
-.ptaszek input { width: auto; margin: 0; }
+.ptaszek { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px;
+  padding: 2px 0; }
+.ptaszek input { width: auto; margin: 0; flex: none; }
 .akcje { display: flex; justify-content: flex-end; align-items: end; }
 
 .btn.szary { background: var(--plyta-2); color: var(--tekst); border: 1px solid var(--linia-2); }
@@ -425,10 +426,12 @@ tbody tr:hover td { background: var(--plyta-2); }
 def panel(serwisy: list[dict], wybrany: int | None, kontakty: list[dict],
           szablony_: list[dict], historia: list[dict], wykluczenia: list[dict],
           stat: dict, nadawca: str, komunikat: str = "", blad: bool = False,
-          klucz_jawny: str = "", szukaj: str = "") -> str:
+          klucz_jawny: str = "", szukaj: str = "",
+          historia_wszystkich: list[dict] | None = None) -> str:
     s = next((x for x in serwisy if x["id"] == wybrany), None)
 
-    tresc = _przeglad(s, stat, nadawca, klucz_jawny, serwisy, historia)
+    tresc = _przeglad(s, stat, nadawca, klucz_jawny, serwisy,
+                      historia_wszystkich if historia_wszystkich is not None else historia)
     if s:
         tresc += (_kontakty(s, kontakty, szukaj) + _szablony(s, szablony_)
                   + _log(historia) + _wykluczenia(s, wykluczenia))

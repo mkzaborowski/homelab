@@ -216,6 +216,11 @@ def glowna(komunikat="", blad=False, klucz_jawny=""):
         kontakty=store.kontakty(wybrany, request.args.get("szukaj", "")) if wybrany else [],
         szablony_=store.szablony(wybrany) if wybrany else [],
         historia=store.historia(wybrany, request.args.get("stan", "")),
+        # Osobno i BEZ filtra po serwisie: karta „Latest across all services"
+        # ma pokazywać to, co obiecuje nagłówkiem. Przy wspólnej zmiennej
+        # pokazywała wybrany serwis i wyglądała na pustą, gdy poczta szła
+        # z innego.
+        historia_wszystkich=store.historia(limit=12),
         wykluczenia=store.wykluczenia(wybrany),
         stat=store.statystyki(), nadawca=wysylka.opis(),
         komunikat=komunikat, blad=blad, klucz_jawny=klucz_jawny,

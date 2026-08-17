@@ -284,3 +284,13 @@ def test_zly_kod_serwisu_nie_tworzy_duplikatu():
 
 def test_healthz_dziala_bez_logowania():
     assert _klient().get("/healthz").get_json() == {"status": "ok"}
+
+
+def test_karta_zbiorcza_pokazuje_poczte_ze_wszystkich_serwisow():
+    """Nagłówek „Latest across all services" ma nie kłamać. Przy wspólnej
+    zmiennej karta była filtrowana po wybranym serwisie i wyglądała na pustą,
+    gdy poczta szła z innego."""
+    (a, _), (o, _) = _dwa()
+    store.zakolejkuj(o, "rodzic@example.com", "Z ochrony", "C")
+    html = _zalogowany().get(f"/?serwis={a}").get_data(as_text=True)
+    assert "Z ochrony" in html, "poczta z niewybranego serwisu zniknęła z karty zbiorczej"
