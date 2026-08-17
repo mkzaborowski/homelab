@@ -101,6 +101,27 @@ def _wybor_serwisu(serwisy: list[dict], wybrany: int | None) -> str:
     return f'<div class="serwisy">{"".join(k)}</div>'
 
 
+def _ostrzezenie_nadawcy(s: dict) -> str:
+    """Microsoft odrzuca list, którego pole From nie należy do zalogowanej
+    skrzynki - błędem 550 5.7.60 SendAsDenied, już po przyjęciu połączenia.
+
+    To jest najczęstszy sposób, w jaki taka konfiguracja zawodzi: wszystko
+    wygląda poprawnie, klucz działa, list wchodzi do kolejki i dopiero serwer
+    pocztowy odmawia. Lepiej powiedzieć to przy polu niż w logu błędów."""
+    import wysylka
+    if not wysylka.SMTP_USER:
+        return ""
+    nadawca = (s.get("nadawca_email") or "").strip().lower()
+    if nadawca == wysylka.SMTP_USER.strip().lower():
+        return ""
+    return (f'<div class="tresc" style="border-top:1px solid var(--linia)">'
+            f'<p class="uwaga"><b>From differs from the mailbox you authenticate as</b> '
+            f'(<code>{e(wysylka.SMTP_USER)}</code>). Microsoft 365 rejects that with '
+            f'<code>550 5.7.60 SendAsDenied</code> unless this address is an alias of '
+            f'that mailbox, or a shared mailbox the account has SendAs rights on. '
+            f'Worth checking before the first send rather than after.</p></div>')
+
+
 def _karta_serwisu(s: dict, klucz_jawny: str) -> str:
     jawny = ""
     if klucz_jawny:
@@ -123,6 +144,7 @@ def _karta_serwisu(s: dict, klucz_jawny: str) -> str:
       {"checked" if s["aktywny"] else ""}> Active</label>
     <div class="akcje"><button class="btn">Save</button></div>
   </form>
+  {_ostrzezenie_nadawcy(s)}
   <div class="tresc" style="border-top:1px solid var(--linia);display:flex;
        gap:12px;align-items:center;flex-wrap:wrap">
     <span class="uwaga">API key: {e(ostatni)}</span>

@@ -1,25 +1,41 @@
 """Wysyłka powiadomień o progu odkupu.
 
-Dwa kanały, oba włączane zmienną środowiskową i oba opcjonalne:
+Trzy kanały, wszystkie opcjonalne, wybierane zmienną POWIADOMIENIA:
 
-  POWIADOMIENIA=email  + SMTP_HOST/PORT/USER/PASS + MAIL_DO
-  POWIADOMIENIA=ntfy   + NTFY_TEMAT (darmowy push na telefon, bez konta)
+  poczta + POCZTA_URL/POCZTA_KLUCZ + MAIL_DO    (usługa pocztowa, zalecane)
+  ntfy   + NTFY_TEMAT                           (darmowy push, bez konta)
+  email  + SMTP_HOST/PORT/USER/PASS + MAIL_DO   (SMTP wprost, zaszłość)
 
-Gdy nic nie jest ustawione, alerty i tak są liczone i widoczne w panelu -
+DLACZEGO PRZEZ USŁUGĘ, A NIE SMTP WPROST. Ten plik miał własną kopię kodu
+SMTP, drugą taką samą miał ozk-api i obie czekały na hasło, którego nikt nie
+uzupełnił - alerty liczyły się tygodniami i nie wychodziły nigdzie. Usługa
+pocztowa daje w zamian ponawianie przy awarii serwera, log w jednym miejscu
+i jedno hasło do utrzymania zamiast trzech. SMTP wprost zostaje jako wyjście
+awaryjne: gdyby usługa nie odpowiadała, alert ma jeszcze jedną drogę.
+
+Gdy nic nie jest ustawione, alerty są nadal liczone i widoczne w panelu -
 brak kanału nie może wyłączyć samej analizy. Każda próba wysyłki ląduje
 w tabeli alerty_log, więc widać, czy powiadomienie faktycznie wyszło.
 
-Uwaga o UWIERZYTELNIANIU: hasło do SMTP wczytujemy WYŁĄCZNIE ze zmiennej
-środowiskowej. Nigdy nie trafia do bazy, logów ani panelu.
+Uwaga o SEKRETACH: hasło SMTP i klucz API wczytujemy WYŁĄCZNIE ze zmiennych
+środowiskowych. Nigdy nie trafiają do bazy, logów ani panelu.
 """
 from __future__ import annotations
 
+import json
 import os
 import smtplib
+import urllib.error
 import urllib.request
+from datetime import date
 from email.message import EmailMessage
 
 KANAL = os.environ.get("POWIADOMIENIA", "").strip().lower()
+
+# Usługa pocztowa. Adres domyślny wskazuje na nazwę kontenera w sieci `edge`,
+# więc ruch nie wychodzi na zewnątrz ani nie zależy od DNS-u publicznego.
+POCZTA_URL = os.environ.get("POCZTA_URL", "http://poczta:8091").rstrip("/")
+POCZTA_KLUCZ = os.environ.get("POCZTA_KLUCZ", "")
 
 SMTP_HOST = os.environ.get("SMTP_HOST", "")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", "587") or "587")
@@ -34,17 +50,23 @@ NTFY_TEMAT = os.environ.get("NTFY_TEMAT", "")
 
 def skonfigurowane() -> tuple[bool, str]:
     """Czy da się cokolwiek wysłać i co dokładnie jest ustawione."""
+    if KANAL == "poczta":
+        brak = [n for n, v in (("POCZTA_KLUCZ", POCZTA_KLUCZ), ("MAIL_DO", MAIL_DO))
+                if not v]
+        if brak:
+            return False, "usługa pocztowa wybrana, ale brakuje: " + ", ".join(brak)
+        return True, f"usługa pocztowa na {MAIL_DO}"
     if KANAL == "email":
         brak = [n for n, v in (("SMTP_HOST", SMTP_HOST), ("SMTP_USER", SMTP_USER),
                                ("SMTP_PASS", SMTP_PASS), ("MAIL_DO", MAIL_DO)) if not v]
         if brak:
             return False, "e-mail wybrany, ale brakuje: " + ", ".join(brak)
-        return True, f"e-mail na {MAIL_DO}"
+        return True, f"e-mail wprost na {MAIL_DO}"
     if KANAL == "ntfy":
         if not NTFY_TEMAT:
             return False, "ntfy wybrane, ale brakuje NTFY_TEMAT"
         return True, f"ntfy, temat {NTFY_TEMAT}"
-    return False, "kanał nieustawiony (POWIADOMIENIA=email albo ntfy)"
+    return False, "kanał nieustawiony (POWIADOMIENIA=poczta, ntfy albo email)"
 
 
 def _tresc(alerty: list[dict]) -> tuple[str, str]:
@@ -61,6 +83,34 @@ def _tresc(alerty: list[dict]) -> tuple[str, str]:
     linie.append("\nDane z wyciągu IBKR z poprzedniej sesji — przed złożeniem "
                  "zlecenia sprawdź bieżącą cenę w TWS.")
     return tytul, "\n\n".join(linie)
+
+
+def _klucz_idempotencji(alerty: list[dict]) -> str:
+    """Ten sam zestaw progów tego samego dnia to ten sam alert.
+
+    Bez tego ponowiony przebieg po awarii wysłałby drugie powiadomienie o tych
+    samych pozycjach - a alert, który przychodzi dwa razy, przestaje być
+    traktowany poważnie."""
+    symbole = "+".join(sorted(a["symbol"] for a in alerty))
+    return f"odkup-{date.today().isoformat()}-{symbole}"[:120]
+
+
+def _wyslij_usluga(tytul: str, tresc: str, alerty: list[dict]) -> None:
+    dane = json.dumps({"do": MAIL_DO, "temat": tytul, "tresc": tresc,
+                       "klucz": _klucz_idempotencji(alerty)}).encode("utf-8")
+    zad = urllib.request.Request(
+        f"{POCZTA_URL}/api/wyslij", data=dane, method="POST",
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {POCZTA_KLUCZ}"})
+    try:
+        with urllib.request.urlopen(zad, timeout=20) as o:
+            odp = json.loads(o.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        # Komunikat usługi jest konkretny („nieznany klucz API", „adres nie
+        # wygląda na e-mail") i wart pokazania w logu przebiegów.
+        raise RuntimeError(f"HTTP {e.code}: {(e.read() or b'').decode()[:200]}") from e
+    if odp.get("stan") == "pominiety":
+        raise RuntimeError(f"adres wykluczony ({odp.get('powod')})")
 
 
 def _wyslij_email(tytul: str, tresc: str) -> None:
@@ -100,7 +150,9 @@ def wyslij(alerty: list[dict]) -> tuple[bool, str]:
         return False, opis
     tytul, tresc = _tresc(alerty)
     try:
-        if KANAL == "email":
+        if KANAL == "poczta":
+            _wyslij_usluga(tytul, tresc, alerty)
+        elif KANAL == "email":
             _wyslij_email(tytul, tresc)
         else:
             _wyslij_ntfy(tytul, tresc)
