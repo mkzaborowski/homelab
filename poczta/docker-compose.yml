@@ -1,0 +1,25 @@
+services:
+  poczta:
+    image: ghcr.io/mkzaborowski/poczta:${TAG:-latest}
+    container_name: poczta
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: Europe/Warsaw
+    volumes:
+      - poczta_dane:/dane
+    expose:
+      - "8091"
+    networks:
+      - edge
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  poczta_dane:
+
+networks:
+  edge:
+    external: true
