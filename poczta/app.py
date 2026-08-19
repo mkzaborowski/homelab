@@ -116,6 +116,10 @@ def api_wyslij(s):
         # zgodnie z regułami. To nie jest awaria, tylko decyzja.
         return jsonify({"stan": "pominiety", "powod": w["powod"]}), 200
 
+    odp = (d.get("odpowiedz_do") or "").strip()
+    if odp and not wysylka.poprawny_adres(odp):
+        return jsonify({"blad": "pole 'odpowiedz_do' nie wygląda na adres e-mail"}), 400
+
     kod_szablonu = (d.get("szablon") or "").strip().lower()
     if kod_szablonu:
         sz = store.szablon(s["id"], kod_szablonu)
@@ -141,7 +145,8 @@ def api_wyslij(s):
         s["id"], do, temat, tresc, kod_szablonu or None,
         (d.get("klucz") or "").strip() or None,
         tresc_html=(d.get("tresc_html") or None),
-        zalaczniki=zalaczniki or None)
+        zalaczniki=zalaczniki or None,
+        odpowiedz_do=(d.get("odpowiedz_do") or "").strip() or None)
 
     if d.get("dodaj_kontakt"):
         store.dodaj_kontakt(s["id"], do, (d.get("dane") or {}).get("imie", ""),

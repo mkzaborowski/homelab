@@ -334,3 +334,37 @@ def test_api_odrzuca_za_duzy_zalacznik():
         "zalaczniki": [{"nazwa": "duzy.pdf", "dane_b64": duzy}],
     }, headers=_naglowek(ka))
     assert r.status_code == 400 and "limit" in r.get_json()["blad"]
+
+
+def test_reply_to_wiadomosci_wygrywa_z_ustawieniem_serwisu():
+    """Powiadomienie o pytaniu ma odpowiadać pytającemu, nie skrzynce ogólnej."""
+    (a, ka), _ = _dwa()
+    store.zmien_serwis(a, odpowiedz_do="ogolna@alphaolsztyn.pl")
+    r = _klient().post("/api/wyslij", json={
+        "do": "organizator@op.pl", "temat": "Nowe pytanie", "tresc": "treść",
+        "odpowiedz_do": "pytajacy@example.com",
+    }, headers=_naglowek(ka))
+    assert r.status_code == 202
+    assert store.historia(a)[0]["odpowiedz_do"] == "pytajacy@example.com"
+
+    d = Udany()
+    kolejka.przebieg(dostawca=d, spij=lambda _: None)
+    assert d.wyslane[0]["Reply-To"] == "pytajacy@example.com"
+
+
+def test_bez_reply_to_wiadomosci_zostaje_ustawienie_serwisu():
+    (a, ka), _ = _dwa()
+    store.zmien_serwis(a, odpowiedz_do="ogolna@alphaolsztyn.pl")
+    _klient().post("/api/wyslij", json={"do": "x@example.com", "temat": "T", "tresc": "C"},
+                   headers=_naglowek(ka))
+    d = Udany()
+    kolejka.przebieg(dostawca=d, spij=lambda _: None)
+    assert d.wyslane[0]["Reply-To"] == "ogolna@alphaolsztyn.pl"
+
+
+def test_zly_reply_to_odrzucony():
+    (a, ka), _ = _dwa()
+    r = _klient().post("/api/wyslij", json={
+        "do": "x@example.com", "temat": "T", "tresc": "C", "odpowiedz_do": "@zle",
+    }, headers=_naglowek(ka))
+    assert r.status_code == 400 and "odpowiedz_do" in r.get_json()["blad"]

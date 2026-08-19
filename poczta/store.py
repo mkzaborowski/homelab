@@ -95,6 +95,7 @@ def zainicjuj() -> None:
             temat TEXT NOT NULL,
             tresc TEXT NOT NULL,
             tresc_html TEXT,                   -- wersja HTML, gdy nadawca ją podał
+            odpowiedz_do TEXT,                 -- Reply-To dla tej jednej wiadomości
             zalaczniki TEXT,                   -- JSON: [{nazwa, typ, dane_b64}]
             szablon TEXT,
             klucz_idem TEXT,                   -- ochrona przed podwójną wysyłką
@@ -129,7 +130,7 @@ def zainicjuj() -> None:
         # produkcja ma tabelę bez tych kolumn i dostałaby „no such column"
         # przy pierwszej wysyłce z załącznikiem.
         kolumny = {w["name"] for w in con.execute("PRAGMA table_info(kolejka)")}
-        for nazwa in ("tresc_html", "zalaczniki"):
+        for nazwa in ("tresc_html", "zalaczniki", "odpowiedz_do"):
             if nazwa not in kolumny:
                 con.execute(f"ALTER TABLE kolejka ADD COLUMN {nazwa} TEXT")
 
@@ -348,7 +349,8 @@ def zakolejkuj(serwis_id: int, do_email: str, temat: str, tresc: str,
                szablon_kod: str | None = None,
                klucz_idem: str | None = None,
                tresc_html: str | None = None,
-               zalaczniki: list[dict] | None = None) -> tuple[int, bool]:
+               zalaczniki: list[dict] | None = None,
+               odpowiedz_do: str | None = None) -> tuple[int, bool]:
     """Wrzuca list do kolejki. Zwraca (id, czy_nowy).
 
     Idempotencja jest tu warunkiem bezpieczeństwa, nie wygodą: aplikacja,
@@ -363,11 +365,11 @@ def zakolejkuj(serwis_id: int, do_email: str, temat: str, tresc: str,
                 return int(w["id"]), False
         kur = con.execute(
             "INSERT INTO kolejka (serwis_id, do_email, temat, tresc, tresc_html,"
-            " zalaczniki, szablon, klucz_idem, nastepna_proba, przyjeto)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " zalaczniki, odpowiedz_do, szablon, klucz_idem, nastepna_proba, przyjeto)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (serwis_id, do_email.strip().lower(), temat, tresc, tresc_html or None,
              json.dumps(zalaczniki, ensure_ascii=False) if zalaczniki else None,
-             szablon_kod, klucz_idem, _teraz(), _teraz()))
+             odpowiedz_do or None, szablon_kod, klucz_idem, _teraz(), _teraz()))
         return int(kur.lastrowid), True
 
 

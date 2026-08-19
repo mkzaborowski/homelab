@@ -56,7 +56,9 @@ def _list_do_wiadomosci(x: dict) -> "wysylka.EmailMessage":
         tresc=x["tresc"],
         tresc_html=x.get("tresc_html"),
         zalaczniki=_zalaczniki(x),
-        odpowiedz_do=s.get("odpowiedz_do") or "",
+        # Reply-To wiadomości wygrywa z ustawieniem serwisu: powiadomienie
+        # o pytaniu ma odpowiadać pytającemu, nie skrzynce ogólnej.
+        odpowiedz_do=x.get("odpowiedz_do") or s.get("odpowiedz_do") or "",
         # Nagłówek diagnostyczny: po nim widać w cudzej skrzynce, który serwis
         # wysłał list, bez zaglądania do naszej bazy.
         naglowki={"X-Poczta-Serwis": s.get("kod", "?")},
