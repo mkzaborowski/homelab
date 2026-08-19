@@ -602,3 +602,67 @@ def test_graph_odrzuca_za_duza_wiadomosc_jako_blad_trwaly():
             assert "limit Graph" in str(e)
         else:
             raise AssertionError("za duża wiadomość przeszła")
+
+
+def test_mime_dla_graph_ma_koncowki_crlf():
+    """Błąd, który dotarł do skrzynki rodzica jako „Twoja po=isa jest gotowa".
+
+    Domyślna polityka `email` składa wiadomość z samym LF - smtplib dokleja
+    powrót karetki dopiero przy wysyłce. Graph dostaje surowy MIME, więc
+    konwersji nie robi nikt. Quoted-printable zapisuje łamanie długiej linii
+    jako „=" na jej końcu, a parser rozpoznaje to WYŁĄCZNIE jako „=CRLF";
+    przy samym LF czyta znak równości dosłownie i zjada literę po nim."""
+    import email as biblioteka_email
+    w = wysylka.zbuduj("polisy@ochronazklasa.pl", "Ochrona z Klasą",
+                       "rodzic@example.com", "Twoja polisa jest gotowa",
+                       "Świadczenie za 1% uszczerbku na zdrowiu. Składka 135 zł. "
+                       "Ogólne Warunki Ubezpieczenia znajdziesz w załączniku, "
+                       "a szczegóły ochrony w certyfikacie dołączonym do tej wiadomości.",
+                       tresc_html="<p>NNW <strong>InterRisk</strong> — "
+                                  "certyfikat w załączniku tej wiadomości.</p>")
+    surowe = w.as_bytes(policy=w.policy.clone(linesep="\r\n"))
+    assert b"\r\n" in surowe
+    # ani jednego LF bez poprzedzającego CR
+    assert surowe.replace(b"\r\n", b"").count(b"\n") == 0
+
+    # a po odkodowaniu treść jest nietknięta
+    wiad = biblioteka_email.message_from_bytes(surowe, policy=biblioteka_email.policy.default)
+    tekst = wiad.get_body(("plain",)).get_content()
+    html = wiad.get_body(("html",)).get_content()
+    assert "Świadczenie" in tekst and "Składka" in tekst and "Ogólne" in tekst
+    assert "<strong>InterRisk</strong>" in html
+    assert "=" not in tekst.replace("=", "", 0) or "po=isa" not in tekst
+    for zepsute in ("=isa", "Sk=C5", "<=trong", "za=C4"):
+        assert zepsute not in tekst and zepsute not in html, zepsute
+
+
+def test_graph_wysyla_mime_ktory_da_sie_odczytac():
+    """Sprawdzamy to, co faktycznie poleci do Microsoftu, a nie to, co
+    zbudowaliśmy - między jednym a drugim był właśnie ten błąd."""
+    import base64 as b64, email as be, io, unittest.mock as mock
+    zapisane = {}
+
+    class Odpowiedz(io.BytesIO):
+        status = 202
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def udawaj(zad, timeout=None):
+        if "login.microsoftonline.com" in zad.full_url:
+            return Odpowiedz(b'{"access_token":"tok","expires_in":3600}')
+        zapisane["mime"] = b64.b64decode(zad.data)
+        return Odpowiedz(b"")
+
+    w = wysylka.zbuduj("polisy@ochronazklasa.pl", "Ochrona z Klasą",
+                       "rodzic@example.com", "Certyfikat gotowy",
+                       "Składka 135 zł, świadczenie za 1% uszczerbku 750 zł.",
+                       tresc_html="<p><strong>Ogólne</strong> warunki</p>")
+    with mock.patch.multiple(wysylka, GRAPH_DZIERZAWA="dz", GRAPH_KLIENT="k",
+                             GRAPH_SEKRET="s", GRAPH_SKRZYNKA="polisy@ochronazklasa.pl"), \
+         mock.patch.object(wysylka.urllib.request, "urlopen", udawaj):
+        wysylka.GraphOAuth().wyslij(w)
+
+    wiad = be.message_from_bytes(zapisane["mime"], policy=be.policy.default)
+    assert wiad["Subject"] == "Certyfikat gotowy"
+    assert "Składka 135 zł" in wiad.get_body(("plain",)).get_content()
+    assert "<strong>Ogólne</strong>" in wiad.get_body(("html",)).get_content()

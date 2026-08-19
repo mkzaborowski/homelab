@@ -285,7 +285,17 @@ class GraphOAuth(Dostawca):
         if not ok:
             raise BladTrwaly(f"nadawca nieskonfigurowany - {opis}")
 
-        surowa = base64.b64encode(w.as_bytes())
+        # KOŃCE LINII MUSZĄ BYĆ CRLF. Domyślna polityka `email` składa
+        # wiadomość z samym LF, bo tak wygodniej w Pythonie, a smtplib
+        # dokleja powrót karetki dopiero przy wysyłce. Tutaj omijamy smtplib
+        # i podajemy Graphowi surowy MIME, więc konwersji nie robi nikt.
+        #
+        # Skutek był widoczny w skrzynce: quoted-printable koduje polskie
+        # znaki, a łamanie długich linii zapisuje jako „=" na końcu linii.
+        # Parser rozpoznaje to WYŁĄCZNIE jako „=CRLF"; przy samym LF traktuje
+        # znak równości dosłownie i zjada literę po nim. Stąd „po=isa jest
+        # gotowa", „Sk=C5adka" i „<=trong>" zamiast <strong>.
+        surowa = base64.b64encode(w.as_bytes(policy=w.policy.clone(linesep="\r\n")))
         if len(surowa) > self.MAKS_WIADOMOSC:
             raise BladTrwaly(
                 f"wiadomość ma {len(surowa) // 1024} kB po zakodowaniu, "
