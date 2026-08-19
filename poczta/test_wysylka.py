@@ -454,3 +454,151 @@ def test_uszkodzony_zalacznik_w_bazie_nie_wywala_calego_listu():
     w = kolejka.przebieg(dostawca=d, spij=lambda _: None)
     assert w["wyslane"] == 1
     assert list(d.wyslane[0].iter_attachments()) == []
+
+
+# --------------------------------------------------------------------------- #
+#  Microsoft Graph
+# --------------------------------------------------------------------------- #
+
+def test_graph_wygrywa_gdy_skonfigurowany():
+    """Graph nie wymaga wyłączania zabezpieczeń dzierżawy i nie ma terminu
+    ważności, więc gdy jest gotowy, SMTP nie ma po co startować."""
+    import unittest.mock as mock
+    with mock.patch.multiple(wysylka, GRAPH_KLIENT="k", GRAPH_SEKRET="s"):
+        assert isinstance(wysylka.dostawca(), wysylka.GraphOAuth)
+    with mock.patch.multiple(wysylka, GRAPH_KLIENT="", GRAPH_SEKRET=""):
+        assert isinstance(wysylka.dostawca(), wysylka.SmtpHaslem)
+
+
+def test_graph_mowi_czego_brakuje():
+    import unittest.mock as mock
+    with mock.patch.multiple(wysylka, GRAPH_DZIERZAWA="d", GRAPH_KLIENT="k",
+                             GRAPH_SEKRET="s", GRAPH_SKRZYNKA=""):
+        ok, opis = wysylka.GraphOAuth().skonfigurowany()
+    assert ok is False and "GRAPH_SKRZYNKA" in opis
+
+
+def test_graph_wysyla_wiadomosc_jako_mime_na_wlasciwy_adres():
+    """MIME, nie JSON: dzięki temu ta sama zbudowana wiadomość - z HTML-em,
+    załącznikami i nagłówkami - idzie oboma kanałami bez drugiego kodu."""
+    import base64 as b64, io, unittest.mock as mock
+    zapisane = {}
+
+    class Odpowiedz(io.BytesIO):
+        status = 202
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def udawaj(zad, timeout=None):
+        if "login.microsoftonline.com" in zad.full_url:
+            return Odpowiedz(b'{"access_token":"tok","expires_in":3600}')
+        zapisane["url"] = zad.full_url
+        zapisane["naglowki"] = {k.lower(): v for k, v in zad.header_items()}
+        zapisane["mime"] = b64.b64decode(zad.data)
+        return Odpowiedz(b"")
+
+    w = wysylka.zbuduj("polisy@ochronazklasa.pl", "Ochrona z klasą",
+                       "rodzic@example.com", "Certyfikat", "treść",
+                       tresc_html="<p>treść</p>",
+                       zalaczniki=[{"nazwa": "cert.pdf", "typ": "application/pdf",
+                                    "dane": b"%PDF-1.4 xxx"}])
+    with mock.patch.multiple(wysylka, GRAPH_DZIERZAWA="dz", GRAPH_KLIENT="k",
+                             GRAPH_SEKRET="s", GRAPH_SKRZYNKA="polisy@ochronazklasa.pl"), \
+         mock.patch.object(wysylka.urllib.request, "urlopen", udawaj):
+        opis = wysylka.GraphOAuth().wyslij(w)
+
+    assert "polisy%40ochronazklasa.pl/sendMail" in zapisane["url"]
+    assert zapisane["naglowki"]["authorization"] == "Bearer tok"
+    assert zapisane["naglowki"]["content-type"] == "text/plain"
+    assert b"Certyfikat" in zapisane["mime"]
+    assert b"cert.pdf" in zapisane["mime"]          # zalacznik jedzie z wiadomoscia
+    assert b"text/html" in zapisane["mime"]         # i wersja HTML tez
+    assert "polisy@ochronazklasa.pl" in opis
+
+
+def test_graph_token_jest_pobierany_raz_na_serie():
+    """Token żyje godzinę. Pobieranie go do każdego listu dokładałoby żądanie
+    na każdą wiadomość i niepotrzebnie obciążało logowanie."""
+    import io, unittest.mock as mock
+    ile = {"token": 0}
+
+    class Odpowiedz(io.BytesIO):
+        status = 202
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def udawaj(zad, timeout=None):
+        if "login.microsoftonline.com" in zad.full_url:
+            ile["token"] += 1
+            return Odpowiedz(b'{"access_token":"tok","expires_in":3600}')
+        return Odpowiedz(b"")
+
+    w = wysylka.zbuduj("a@b.pl", "", "c@d.pl", "T", "C")
+    with mock.patch.multiple(wysylka, GRAPH_DZIERZAWA="dz", GRAPH_KLIENT="k",
+                             GRAPH_SEKRET="s", GRAPH_SKRZYNKA="a@b.pl"), \
+         mock.patch.object(wysylka.urllib.request, "urlopen", udawaj):
+        d = wysylka.GraphOAuth()
+        for _ in range(3):
+            d.wyslij(w)
+    assert ile["token"] == 1, ile
+
+
+def test_graph_rozroznia_blad_trwaly_od_chwilowego():
+    """429 i 5xx to przeciążenie po ich stronie - ponawiamy. 401 i 403 to brak
+    uprawnienia albo zgody administratora; ponawianie tego w nieskończoność
+    zamuli kolejkę zamiast pokazać przyczynę."""
+    import io, unittest.mock as mock, urllib.error
+
+    class Token(io.BytesIO):
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def dla_kodu(kod):
+        def udawaj(zad, timeout=None):
+            if "login.microsoftonline.com" in zad.full_url:
+                return Token(b'{"access_token":"tok","expires_in":3600}')
+            raise urllib.error.HTTPError(zad.full_url, kod, "nope", {},
+                                         io.BytesIO(b'{"error":{"message":"x"}}'))
+        return udawaj
+
+    w = wysylka.zbuduj("a@b.pl", "", "c@d.pl", "T", "C")
+    for kod, oczekiwany in ((429, wysylka.BladChwilowy), (503, wysylka.BladChwilowy),
+                            (401, wysylka.BladTrwaly), (403, wysylka.BladTrwaly),
+                            (400, wysylka.BladTrwaly)):
+        with mock.patch.multiple(wysylka, GRAPH_DZIERZAWA="dz", GRAPH_KLIENT="k",
+                                 GRAPH_SEKRET="s", GRAPH_SKRZYNKA="a@b.pl"), \
+             mock.patch.object(wysylka.urllib.request, "urlopen", dla_kodu(kod)):
+            try:
+                wysylka.GraphOAuth().wyslij(w)
+            except oczekiwany:
+                pass
+            except Exception as e:                              # noqa: BLE001
+                raise AssertionError(f"kod {kod} dał {type(e).__name__}, "
+                                     f"oczekiwano {oczekiwany.__name__}") from e
+            else:
+                raise AssertionError(f"kod {kod} nie rzucił niczego")
+
+
+def test_graph_odrzuca_za_duza_wiadomosc_jako_blad_trwaly():
+    """Ponawianie nie zmniejszy wiadomości."""
+    import io, unittest.mock as mock
+
+    class Token(io.BytesIO):
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    w = wysylka.zbuduj("a@b.pl", "", "c@d.pl", "T", "C",
+                       zalaczniki=[{"nazwa": "duzy.pdf", "typ": "application/pdf",
+                                    "dane": b"x" * 4_000_000}])
+    with mock.patch.multiple(wysylka, GRAPH_DZIERZAWA="dz", GRAPH_KLIENT="k",
+                             GRAPH_SEKRET="s", GRAPH_SKRZYNKA="a@b.pl"), \
+         mock.patch.object(wysylka.urllib.request, "urlopen",
+                           lambda *a, **k: Token(b'{"access_token":"t","expires_in":3600}')):
+        try:
+            wysylka.GraphOAuth().wyslij(w)
+        except wysylka.BladTrwaly as e:
+            assert "limit Graph" in str(e)
+        else:
+            raise AssertionError("za duża wiadomość przeszła")

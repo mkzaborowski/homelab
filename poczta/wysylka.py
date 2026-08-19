@@ -19,9 +19,15 @@ bazy, logów ani panelu.
 """
 from __future__ import annotations
 
+import base64
+import json
 import os
 import smtplib
 import ssl
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from email.headerregistry import Address
 from email.message import EmailMessage
 from email.utils import make_msgid, parseaddr
@@ -33,6 +39,12 @@ SMTP_PASS = os.environ.get("SMTP_PASS", "")
 # Ile listów na minutę. Exchange Online przyjmuje 30/min i odcina powyżej,
 # więc trzymamy się poniżej progu zamiast dowiadywać się o nim z odmowy.
 NA_MINUTE = int(os.environ.get("SMTP_NA_MINUTE", "20") or "20")
+
+# Microsoft Graph - wysyłka tokenem aplikacji, bez hasła użytkownika.
+GRAPH_DZIERZAWA = os.environ.get("GRAPH_DZIERZAWA", "")
+GRAPH_KLIENT = os.environ.get("GRAPH_KLIENT", "")
+GRAPH_SEKRET = os.environ.get("GRAPH_SEKRET", "")
+GRAPH_SKRZYNKA = os.environ.get("GRAPH_SKRZYNKA", "")
 
 
 class BladTrwaly(Exception):
@@ -201,9 +213,114 @@ def _krotko(e: Exception) -> str:
     return t[:200]
 
 
+class GraphOAuth(Dostawca):
+    """Wysyłka przez Microsoft Graph, uwierzytelniana tokenem aplikacji.
+
+    DLACZEGO TA DROGA. Dzierżawa ma włączone domyślne zabezpieczenia (security
+    defaults), które blokują logowanie hasłem do SMTP dla WSZYSTKICH protokołów.
+    Żeby przepuścić SMTP, trzeba by je wyłączyć w całej organizacji - czyli
+    zdjąć wymuszone MFA ze wszystkich kont, żeby jedna skrzynka techniczna
+    mogła wysyłać maile. To zła zamiana.
+
+    Graph nie używa hasła użytkownika: aplikacja ma własną tożsamość i własne
+    uprawnienie Mail.Send. Zabezpieczenia zostają włączone, a wysyłka działa.
+    Nie dotyczy jej też wygaszanie podstawowego uwierzytelniania SMTP
+    zapowiedziane na koniec 2026.
+
+    WIADOMOŚĆ WYSYŁAMY JAKO MIME, nie jako JSON. Graph przyjmuje oba, ale MIME
+    pozwala użyć tej samej, zbudowanej już wiadomości co SMTP - z HTML-em,
+    załącznikami i nagłówkami. Wariant JSON wymagałby drugiego kodu składania
+    listu, który rozjechałby się z pierwszym przy pierwszej zmianie.
+    """
+
+    nazwa = "Microsoft Graph"
+    # Graph przyjmuje wiadomość MIME do ok. 4 MB. Trzymamy się poniżej, bo
+    # base64 rozdyma treść o jedną trzecią i limit dotyczy już rozdmuchanej.
+    MAKS_WIADOMOSC = 3_500_000
+
+    def __init__(self) -> None:
+        self._token = ""
+        self._wazny_do = 0.0
+
+    def skonfigurowany(self) -> tuple[bool, str]:
+        brak = [n for n, v in (("GRAPH_DZIERZAWA", GRAPH_DZIERZAWA),
+                               ("GRAPH_KLIENT", GRAPH_KLIENT),
+                               ("GRAPH_SEKRET", GRAPH_SEKRET),
+                               ("GRAPH_SKRZYNKA", GRAPH_SKRZYNKA)) if not v]
+        if brak:
+            return False, "brakuje: " + ", ".join(brak)
+        return True, f"{GRAPH_SKRZYNKA} przez Microsoft Graph"
+
+    def _pobierz_token(self) -> str:
+        """Token żyje godzinę, więc trzymamy go w pamięci. Odświeżamy minutę
+        przed końcem - przy wysyłce trwającej kilka sekund token wygasający
+        „za chwilę" zdążyłby przeterminować się w locie."""
+        if self._token and time.time() < self._wazny_do - 60:
+            return self._token
+        dane = urllib.parse.urlencode({
+            "client_id": GRAPH_KLIENT,
+            "client_secret": GRAPH_SEKRET,
+            "scope": "https://graph.microsoft.com/.default",
+            "grant_type": "client_credentials",
+        }).encode()
+        url = f"https://login.microsoftonline.com/{GRAPH_DZIERZAWA}/oauth2/v2.0/token"
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, data=dane), timeout=30) as o:
+                odp = json.loads(o.read())
+        except urllib.error.HTTPError as e:
+            tresc = (e.read() or b"").decode()[:300]
+            # Zły sekret albo brak zgody administratora nie naprawi się same -
+            # to konfiguracja, nie chwilowa awaria.
+            raise BladTrwaly(f"token Graph HTTP {e.code}: {tresc}") from e
+        except Exception as e:                                  # noqa: BLE001
+            raise BladChwilowy(f"token Graph: {type(e).__name__}: {e}") from e
+        self._token = odp.get("access_token", "")
+        self._wazny_do = time.time() + float(odp.get("expires_in", 3600))
+        if not self._token:
+            raise BladTrwaly("token Graph: odpowiedź bez access_token")
+        return self._token
+
+    def wyslij(self, w: EmailMessage) -> str:
+        ok, opis = self.skonfigurowany()
+        if not ok:
+            raise BladTrwaly(f"nadawca nieskonfigurowany - {opis}")
+
+        surowa = base64.b64encode(w.as_bytes())
+        if len(surowa) > self.MAKS_WIADOMOSC:
+            raise BladTrwaly(
+                f"wiadomość ma {len(surowa) // 1024} kB po zakodowaniu, "
+                f"limit Graph to {self.MAKS_WIADOMOSC // 1024} kB")
+
+        url = (f"https://graph.microsoft.com/v1.0/users/"
+               f"{urllib.parse.quote(GRAPH_SKRZYNKA)}/sendMail")
+        zad = urllib.request.Request(url, data=surowa, method="POST", headers={
+            "Authorization": f"Bearer {self._pobierz_token()}",
+            "Content-Type": "text/plain",
+        })
+        try:
+            with urllib.request.urlopen(zad, timeout=60) as o:
+                if o.status not in (200, 202):
+                    raise BladChwilowy(f"Graph HTTP {o.status}")
+            return f"Graph ({GRAPH_SKRZYNKA})"
+        except urllib.error.HTTPError as e:
+            tresc = (e.read() or b"").decode()[:300].replace("\n", " ")
+            # 429 i 5xx to przeciążenie po ich stronie - warto ponowić.
+            # 401/403 to brak uprawnienia albo zgody administratora, 400 to
+            # zła wiadomość; ponawianie tego w nieskończoność zamuli kolejkę
+            # zamiast pokazać przyczynę.
+            if e.code == 429 or e.code >= 500:
+                raise BladChwilowy(f"Graph HTTP {e.code}: {tresc}") from e
+            raise BladTrwaly(f"Graph HTTP {e.code}: {tresc}") from e
+        except (urllib.error.URLError, OSError) as e:
+            raise BladChwilowy(f"Graph: {type(e).__name__}: {e}") from e
+
+
 def dostawca() -> Dostawca:
-    """Punkt wymiany. Gdy Microsoft wyłączy hasła, dochodzi tu druga klasa
-    (SmtpOAuth) i jeden warunek - reszta usługi nie wie o zmianie."""
+    """Punkt wymiany. Graph ma pierwszeństwo, gdy jest skonfigurowany - nie
+    wymaga wyłączania zabezpieczeń dzierżawy i nie ma terminu ważności.
+    SMTP zostaje dla dostawców, którzy nie mają Graph."""
+    if GRAPH_KLIENT and GRAPH_SEKRET:
+        return GraphOAuth()
     return SmtpHaslem()
 
 
