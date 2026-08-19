@@ -16,6 +16,7 @@ pod niego list próbny.
 """
 from __future__ import annotations
 
+import base64
 import json
 import sys
 import urllib.error
@@ -36,6 +37,22 @@ PODPOWIEDZI = {
     "AADSTS7000222": "sekret WYGASŁ - wygeneruj nowy w Certyfikaty i klucze tajne",
     "AADSTS500011": "nie ma takiej aplikacji w dzierżawie albo brak zgody administratora",
 }
+
+
+def _role_z_tokenu(token: str) -> list[str] | None:
+    """Uprawnienia aplikacyjne z ładunku tokenu JWT.
+
+    Bez weryfikacji podpisu i to jest w porządku: token dostaliśmy przed chwilą
+    od Microsoftu po TLS, a odczyt służy diagnostyce, nie podejmowaniu decyzji
+    o dostępie. Decyzję i tak podejmuje Graph przy wywołaniu."""
+    try:
+        ladunek = token.split(".")[1]
+        ladunek += "=" * (-len(ladunek) % 4)          # base64url bez dopełnienia
+        dane = json.loads(base64.urlsafe_b64decode(ladunek))
+    except (ValueError, IndexError, TypeError):
+        return None
+    role = dane.get("roles")
+    return list(role) if isinstance(role, list) else []
 
 
 def _krok(nr: int, opis: str) -> None:
@@ -84,28 +101,33 @@ def sprawdz(adres_probny: str = "") -> int:
             _rada("sprawdź GRAPH_DZIERZAWA, GRAPH_KLIENT i GRAPH_SEKRET")
         return 1
 
-    _krok(3, "Dostęp do skrzynki (czy administrator udzielił zgody na Mail.Send)")
-    url = ("https://graph.microsoft.com/v1.0/users/"
-           + urllib.parse.quote(wysylka.GRAPH_SKRZYNKA)
-           + "?$select=userPrincipalName,mail,displayName")
-    zad = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-    try:
-        with urllib.request.urlopen(zad, timeout=30) as o:
-            kto = json.loads(o.read())
-        _ok(f'skrzynka istnieje: {kto.get("displayName")} <{kto.get("mail") or kto.get("userPrincipalName")}>')
-    except urllib.error.HTTPError as e:
-        tresc = (e.read() or b"").decode()[:300]
-        _zle(f"HTTP {e.code}: {tresc}")
-        if e.code == 403:
-            _rada("brak zgody administratora - w Uprawnienia API kliknij "
-                  "„Udziel zgody administratora dla <organizacja>”")
-        elif e.code == 401:
-            _rada("token odrzucony - uprawnienie musi być APLIKACYJNE, nie delegowane")
-        elif e.code == 404:
-            _rada(f"nie ma skrzynki {wysylka.GRAPH_SKRZYNKA} - sprawdź GRAPH_SKRZYNKA")
+    _krok(3, "Uprawnienie Mail.Send (czy administrator udzielił zgody)")
+    # Czytamy uprawnienia PROSTO Z TOKENU, a nie próbnym wywołaniem Graph.
+    #
+    # Pierwsza wersja pytała o obiekt użytkownika (GET /users/...) i to był
+    # błąd: odczyt katalogu wymaga User.Read.All, czyli zupełnie innego
+    # uprawnienia niż Mail.Send. Diagnostyka pokazywałaby „brak zgody" nawet
+    # przy poprawnie nadanym Mail.Send i wysyłałaby w pogoń za duchem.
+    #
+    # Token to JWT, a lista nadanych uprawnień aplikacyjnych siedzi w polu
+    # `roles`. Nie weryfikujemy podpisu - to nie jest kontrola dostępu, tylko
+    # odczyt tego, co Microsoft właśnie nam wydał.
+    role = _role_z_tokenu(token)
+    if role is None:
+        _zle("nie udało się odczytać zawartości tokenu")
         return 1
-    except Exception as e:                                      # noqa: BLE001
-        _zle(f"{type(e).__name__}: {e}")
+    if "Mail.Send" in role:
+        _ok("Mail.Send nadane i zatwierdzone" + (f" (razem z: {', '.join(sorted(set(role) - {'Mail.Send'}))})"
+                                                 if len(set(role)) > 1 else ""))
+    else:
+        _zle("token nie zawiera uprawnienia Mail.Send"
+             + (f" (ma: {', '.join(role)})" if role else " (nie ma żadnych uprawnień aplikacyjnych)"))
+        _rada("Uprawnienia interfejsu API → Dodaj uprawnienie → Microsoft Graph")
+        _rada("→ Uprawnienia APLIKACJI (nie delegowane) → Mail.Send → Dodaj")
+        _rada("→ potem „Udziel zgody administratora dla <organizacja>”")
+        _rada("gdyby przycisk był nieaktywny, otwórz jednorazowy adres zgody:")
+        _rada(f"   https://login.microsoftonline.com/{wysylka.GRAPH_DZIERZAWA}"
+              f"/adminconsent?client_id={wysylka.GRAPH_KLIENT}")
         return 1
 
     _krok(4, "Nadawcy serwisów (Graph odrzuci list z cudzego adresu)")
