@@ -374,3 +374,83 @@ def test_opis_wstrzymania_mowi_czego_brakuje():
     w = kolejka.przebieg(dostawca=Nieskonfigurowany(), spij=lambda _: None)
     opis = kolejka.opis_przebiegu(w)
     assert "wstrzymane" in opis and "SMTP_USER" in opis
+
+
+# --------------------------------------------------------------------------- #
+#  HTML i załączniki
+# --------------------------------------------------------------------------- #
+
+def test_list_z_html_ma_obie_wersje_we_wlasciwej_kolejnosci():
+    """Czytnik pokazuje OSTATNIĄ część, którą umie wyświetlić. Odwrócona
+    kolejność daje surowy HTML w kliencie tekstowym."""
+    w = wysylka.zbuduj("a@b.pl", "", "c@d.pl", "T", "wersja tekstowa",
+                       tresc_html="<p>wersja HTML</p>")
+    czesci = [c.get_content_type() for c in w.walk() if not c.is_multipart()]
+    assert czesci == ["text/plain", "text/html"], czesci
+    assert w.get_body(("plain",)).get_content().strip() == "wersja tekstowa"
+    assert "wersja HTML" in w.get_body(("html",)).get_content()
+
+
+def test_zalacznik_pdf_trafia_do_listu():
+    pdf = b"%PDF-1.4 udawany certyfikat"
+    w = wysylka.zbuduj("a@b.pl", "", "c@d.pl", "T", "C",
+                       zalaczniki=[{"nazwa": "Certyfikat 123.pdf",
+                                    "typ": "application/pdf", "dane": pdf}])
+    zal = list(w.iter_attachments())
+    assert len(zal) == 1
+    assert zal[0].get_filename() == "Certyfikat 123.pdf"
+    assert zal[0].get_content_type() == "application/pdf"
+    assert zal[0].get_payload(decode=True) == pdf
+
+
+def test_nazwa_zalacznika_nie_przemyci_naglowka():
+    """Nazwa jedzie w Content-Disposition, więc znak nowej linii pozwoliłby
+    dopisać własne nagłówki do listu."""
+    for zla, czego_nie_ma in (("plik\r\nBcc: ktos@example.com.pdf", "\n"),
+                              ("../../etc/passwd", "/"),
+                              ("a\\b.pdf", "\\")):
+        assert czego_nie_ma not in wysylka.czysta_nazwa_pliku(zla), zla
+    assert wysylka.czysta_nazwa_pliku("") == "zalacznik"
+    assert wysylka.czysta_nazwa_pliku("...") == "zalacznik"
+
+
+def test_za_duzy_zalacznik_jest_bledem_trwalym():
+    """Ponawianie nie zmniejszy pliku, więc to nie jest błąd chwilowy."""
+    try:
+        wysylka.zbuduj("a@b.pl", "", "c@d.pl", "T", "C",
+                       zalaczniki=[{"nazwa": "duzy.pdf", "typ": "application/pdf",
+                                    "dane": b"x" * (wysylka.MAKS_ZALACZNIK + 1)}])
+    except wysylka.BladTrwaly as e:
+        assert "limit" in str(e)
+    else:
+        raise AssertionError("za duży załącznik przeszedł")
+
+
+def test_zalaczniki_przechodza_przez_kolejke_z_bazy():
+    """Pełna droga: base64 w bazie → bajty → wiadomość."""
+    import base64
+    s = _serwis()
+    pdf = b"%PDF-1.4 certyfikat z kolejki"
+    store.zakolejkuj(s, "jan@example.com", "Certyfikat", "treść",
+                     tresc_html="<b>treść</b>",
+                     zalaczniki=[{"nazwa": "cert.pdf", "typ": "application/pdf",
+                                  "dane_b64": base64.b64encode(pdf).decode()}])
+    d = Udany()
+    kolejka.przebieg(dostawca=d, spij=lambda _: None)
+    assert len(d.wyslane) == 1
+    zal = list(d.wyslane[0].iter_attachments())
+    assert len(zal) == 1 and zal[0].get_payload(decode=True) == pdf
+    assert d.wyslane[0].get_body(("html",)) is not None
+
+
+def test_uszkodzony_zalacznik_w_bazie_nie_wywala_calego_listu():
+    """Reszta listu jest w porządku - lepiej wysłać go bez załącznika niż
+    nie wysłać wcale i zostawić rodzica bez informacji."""
+    s = _serwis()
+    store.zakolejkuj(s, "jan@example.com", "T", "treść",
+                     zalaczniki=[{"nazwa": "zly.pdf", "typ": "application/pdf",
+                                  "dane_b64": "to-nie-jest-base64!!!"}])
+    d = Udany()
+    w = kolejka.przebieg(dostawca=d, spij=lambda _: None)
+    assert w["wyslane"] == 1
+    assert list(d.wyslane[0].iter_attachments()) == []

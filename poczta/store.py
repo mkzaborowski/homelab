@@ -94,6 +94,8 @@ def zainicjuj() -> None:
             do_email TEXT NOT NULL,
             temat TEXT NOT NULL,
             tresc TEXT NOT NULL,
+            tresc_html TEXT,                   -- wersja HTML, gdy nadawca ją podał
+            zalaczniki TEXT,                   -- JSON: [{nazwa, typ, dane_b64}]
             szablon TEXT,
             klucz_idem TEXT,                   -- ochrona przed podwójną wysyłką
             stan TEXT NOT NULL DEFAULT 'czeka',-- czeka | wyslany | przepadl
@@ -123,6 +125,13 @@ def zainicjuj() -> None:
         CREATE INDEX IF NOT EXISTS idx_kolejka_serwis ON kolejka(serwis_id, przyjeto DESC);
         CREATE INDEX IF NOT EXISTS idx_kontakty_serwis ON kontakty(serwis_id, email);
         """)
+        # CREATE TABLE IF NOT EXISTS obejmuje tylko NOWE bazy - działająca
+        # produkcja ma tabelę bez tych kolumn i dostałaby „no such column"
+        # przy pierwszej wysyłce z załącznikiem.
+        kolumny = {w["name"] for w in con.execute("PRAGMA table_info(kolejka)")}
+        for nazwa in ("tresc_html", "zalaczniki"):
+            if nazwa not in kolumny:
+                con.execute(f"ALTER TABLE kolejka ADD COLUMN {nazwa} TEXT")
 
 
 # --------------------------------------------------------------------------- #
@@ -337,7 +346,9 @@ def usun_szablon(serwis_id: int, kod: str) -> None:
 
 def zakolejkuj(serwis_id: int, do_email: str, temat: str, tresc: str,
                szablon_kod: str | None = None,
-               klucz_idem: str | None = None) -> tuple[int, bool]:
+               klucz_idem: str | None = None,
+               tresc_html: str | None = None,
+               zalaczniki: list[dict] | None = None) -> tuple[int, bool]:
     """Wrzuca list do kolejki. Zwraca (id, czy_nowy).
 
     Idempotencja jest tu warunkiem bezpieczeństwa, nie wygodą: aplikacja,
@@ -351,10 +362,12 @@ def zakolejkuj(serwis_id: int, do_email: str, temat: str, tresc: str,
             if w:
                 return int(w["id"]), False
         kur = con.execute(
-            "INSERT INTO kolejka (serwis_id, do_email, temat, tresc, szablon,"
-            " klucz_idem, nastepna_proba, przyjeto) VALUES (?,?,?,?,?,?,?,?)",
-            (serwis_id, do_email.strip().lower(), temat, tresc, szablon_kod,
-             klucz_idem, _teraz(), _teraz()))
+            "INSERT INTO kolejka (serwis_id, do_email, temat, tresc, tresc_html,"
+            " zalaczniki, szablon, klucz_idem, nastepna_proba, przyjeto)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (serwis_id, do_email.strip().lower(), temat, tresc, tresc_html or None,
+             json.dumps(zalaczniki, ensure_ascii=False) if zalaczniki else None,
+             szablon_kod, klucz_idem, _teraz(), _teraz()))
         return int(kur.lastrowid), True
 
 

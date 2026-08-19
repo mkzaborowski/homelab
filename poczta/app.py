@@ -11,6 +11,7 @@ w logach serwera pośredniczącego i w historii przeglądarki.
 """
 from __future__ import annotations
 
+import base64
 import hmac
 import os
 import secrets
@@ -34,7 +35,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                   SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "1") == "1",
-                  MAX_CONTENT_LENGTH=2 * 1024 * 1024)
+                  MAX_CONTENT_LENGTH=48 * 1024 * 1024)
 
 store.zainicjuj()
 
@@ -131,15 +132,58 @@ def api_wyslij(s):
     except ValueError as e:
         return jsonify({"blad": str(e)}), 400
 
+    try:
+        zalaczniki = _zalaczniki_z_zadania(d.get("zalaczniki"))
+    except ValueError as e:
+        return jsonify({"blad": str(e)}), 400
+
     list_id, nowy = store.zakolejkuj(
         s["id"], do, temat, tresc, kod_szablonu or None,
-        (d.get("klucz") or "").strip() or None)
+        (d.get("klucz") or "").strip() or None,
+        tresc_html=(d.get("tresc_html") or None),
+        zalaczniki=zalaczniki or None)
 
     if d.get("dodaj_kontakt"):
         store.dodaj_kontakt(s["id"], do, (d.get("dane") or {}).get("imie", ""),
                             zrodlo=f"api/{kod_szablonu or 'wysylka'}")
 
     return jsonify({"id": list_id, "nowy": nowy, "stan": "w kolejce"}), 202
+
+
+def _zalaczniki_z_zadania(surowe) -> list[dict]:
+    """Załączniki przychodzą jako base64 w JSON-ie.
+
+    Wybór świadomy: multipart byłby oszczędniejszy o jedną trzecią, ale
+    wymagałby od każdej aplikacji wołającej innego kodu niż reszta API.
+    Certyfikat waży 220 kB, więc narzut base64 to 70 kB na list - cena
+    warta tego, że wszystko jedzie jednym, prostym formatem.
+
+    Rozkodowujemy TUTAJ, przy przyjmowaniu, a nie przy wysyłce: jeśli dane są
+    uszkodzone, aplikacja ma się o tym dowiedzieć natychmiast, w odpowiedzi
+    HTTP, a nie za pięć minut z logu przebiegu."""
+    if not surowe:
+        return []
+    if not isinstance(surowe, list):
+        raise ValueError("pole 'zalaczniki' ma być listą")
+    if len(surowe) > wysylka.MAKS_ZALACZNIKOW:
+        raise ValueError(f"najwyżej {wysylka.MAKS_ZALACZNIKOW} załączników na list")
+    out = []
+    for i, z in enumerate(surowe, 1):
+        if not isinstance(z, dict) or not z.get("dane_b64"):
+            raise ValueError(f"załącznik {i}: brak pola 'dane_b64'")
+        try:
+            dane = base64.b64decode(z["dane_b64"], validate=True)
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"załącznik {i}: base64 nie do odczytania") from e
+        if not dane:
+            raise ValueError(f"załącznik {i}: pusty")
+        if len(dane) > wysylka.MAKS_ZALACZNIK:
+            raise ValueError(f"załącznik {i} ma {len(dane) // 1024} kB, "
+                             f"limit to {wysylka.MAKS_ZALACZNIK // 1024} kB")
+        out.append({"nazwa": wysylka.czysta_nazwa_pliku(z.get("nazwa", "")),
+                    "typ": (z.get("typ") or "application/octet-stream")[:80],
+                    "dane_b64": z["dane_b64"]})
+    return out
 
 
 @app.get("/api/stan/<int:list_id>")

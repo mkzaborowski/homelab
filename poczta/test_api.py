@@ -294,3 +294,43 @@ def test_karta_zbiorcza_pokazuje_poczte_ze_wszystkich_serwisow():
     store.zakolejkuj(o, "rodzic@example.com", "Z ochrony", "C")
     html = _zalogowany().get(f"/?serwis={a}").get_data(as_text=True)
     assert "Z ochrony" in html, "poczta z niewybranego serwisu zniknęła z karty zbiorczej"
+
+
+def test_api_przyjmuje_zalacznik_i_html():
+    import base64
+    (a, ka), _ = _dwa()
+    pdf = b"%PDF-1.4 certyfikat"
+    r = _klient().post("/api/wyslij", json={
+        "do": "rodzic@example.com", "temat": "Certyfikat EDU Plus",
+        "tresc": "W załączeniu certyfikat.",
+        "tresc_html": "<p>W załączeniu certyfikat.</p>",
+        "zalaczniki": [{"nazwa": "Certyfikat 1-2026.pdf", "typ": "application/pdf",
+                        "dane_b64": base64.b64encode(pdf).decode()}],
+    }, headers=_naglowek(ka))
+    assert r.status_code == 202, r.get_data(as_text=True)
+    x = store.historia(a)[0]
+    assert x["tresc_html"] and "<p>" in x["tresc_html"]
+    assert x["zalaczniki"] and "Certyfikat 1-2026.pdf" in x["zalaczniki"]
+
+
+def test_api_odrzuca_uszkodzony_base64_od_razu():
+    """Aplikacja ma się dowiedzieć w odpowiedzi HTTP, a nie za pięć minut
+    z logu przebiegu."""
+    (a, ka), _ = _dwa()
+    r = _klient().post("/api/wyslij", json={
+        "do": "jan@example.com", "temat": "T", "tresc": "C",
+        "zalaczniki": [{"nazwa": "x.pdf", "dane_b64": "%%%nie-base64%%%"}],
+    }, headers=_naglowek(ka))
+    assert r.status_code == 400 and "base64" in r.get_json()["blad"]
+    assert store.historia(a) == []
+
+
+def test_api_odrzuca_za_duzy_zalacznik():
+    import base64
+    (a, ka), _ = _dwa()
+    duzy = base64.b64encode(b"x" * (8 * 1024 * 1024 + 10)).decode()
+    r = _klient().post("/api/wyslij", json={
+        "do": "jan@example.com", "temat": "T", "tresc": "C",
+        "zalaczniki": [{"nazwa": "duzy.pdf", "dane_b64": duzy}],
+    }, headers=_naglowek(ka))
+    assert r.status_code == 400 and "limit" in r.get_json()["blad"]

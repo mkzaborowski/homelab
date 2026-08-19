@@ -80,9 +80,28 @@ def _adres(email: str, nazwa: str = "") -> str:
     return str(Address(display_name=nazwa, username=uzytkownik, domain=domena))
 
 
+# Limity załączników. Certyfikat EDU Plus waży ok. 220 kB, więc 8 MB na list
+# to zapas rzędu wielkości. Powyżej tego i tak większość serwerów odrzuca
+# wiadomość, a odrzucenie po stronie odbiorcy jest gorsze niż nasze własne:
+# nie wiadomo wtedy, czy problem jest w rozmiarze, czy w treści.
+MAKS_ZALACZNIK = 8 * 1024 * 1024
+MAKS_ZALACZNIKOW = 5
+# Nazwa pliku jedzie w nagłówku Content-Disposition. Znak nowej linii pozwala
+# dopisać własne nagłówki, ukośnik sugeruje ścieżkę - jedno i drugie wycinamy
+# u źródła, zamiast ufać, że biblioteka to zrobi.
+_ZLE_W_NAZWIE = str.maketrans({"\r": None, "\n": None, "/": "-", "\\": "-", '"': "'"})
+
+
+def czysta_nazwa_pliku(nazwa: str) -> str:
+    nazwa = (nazwa or "").translate(_ZLE_W_NAZWIE).strip().lstrip(".")
+    return (nazwa or "zalacznik")[:120]
+
+
 def zbuduj(nadawca_email: str, nadawca_nazwa: str, do_email: str,
            temat: str, tresc: str, odpowiedz_do: str = "",
-           naglowki: dict[str, str] | None = None) -> EmailMessage:
+           naglowki: dict[str, str] | None = None,
+           tresc_html: str | None = None,
+           zalaczniki: list[dict] | None = None) -> EmailMessage:
     w = EmailMessage()
     w["Subject"] = temat
     w["From"] = _adres(nadawca_email, nadawca_nazwa)
@@ -96,7 +115,26 @@ def zbuduj(nadawca_email: str, nadawca_nazwa: str, do_email: str,
     w["Message-ID"] = make_msgid(domain=domena)
     for k, v in (naglowki or {}).items():
         w[k] = v
+
+    # Wersja tekstowa ZAWSZE jako pierwsza, HTML jako alternatywa. Kolejność
+    # nie jest kosmetyczna: czytnik pokazuje ostatnią część, którą umie
+    # wyświetlić, więc odwrócenie jej daje surowy HTML w kliencie tekstowym.
     w.set_content(tresc)
+    if tresc_html:
+        w.add_alternative(tresc_html, subtype="html")
+
+    for z in (zalaczniki or [])[:MAKS_ZALACZNIKOW]:
+        dane = z.get("dane")
+        if not isinstance(dane, (bytes, bytearray)) or not dane:
+            continue
+        if len(dane) > MAKS_ZALACZNIK:
+            raise BladTrwaly(
+                f"załącznik {czysta_nazwa_pliku(z.get('nazwa', ''))} ma "
+                f"{len(dane) // 1024} kB, limit to {MAKS_ZALACZNIK // 1024} kB")
+        typ = (z.get("typ") or "application/octet-stream").split("/", 1)
+        w.add_attachment(bytes(dane), maintype=typ[0],
+                         subtype=typ[1] if len(typ) > 1 else "octet-stream",
+                         filename=czysta_nazwa_pliku(z.get("nazwa", "")))
     return w
 
 

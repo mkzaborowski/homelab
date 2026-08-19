@@ -15,12 +15,35 @@ serwer pocztowy patrzy na chwilowe natężenie, nie na średnią.
 """
 from __future__ import annotations
 
+import base64
+import json
 import time
 
 import store
 import wysylka
 
 PRZERWA = 60.0 / max(wysylka.NA_MINUTE, 1)
+
+
+def _zalaczniki(x: dict) -> list[dict]:
+    """Załączniki leżą w bazie jako base64 w JSON-ie i dopiero tutaj wracają
+    do bajtów. Trzymanie ich w bazie, a nie na dysku, jest świadome: list
+    w kolejce ma być samowystarczalny, żeby ponowienie po godzinie nie zależało
+    od tego, czy plik nadal gdzieś leży."""
+    if not x.get("zalaczniki"):
+        return []
+    try:
+        surowe = json.loads(x["zalaczniki"])
+    except (ValueError, TypeError):
+        return []
+    out = []
+    for z in surowe if isinstance(surowe, list) else []:
+        try:
+            out.append({"nazwa": z.get("nazwa", ""), "typ": z.get("typ", ""),
+                        "dane": base64.b64decode(z.get("dane_b64") or "", validate=True)})
+        except (ValueError, TypeError):
+            continue
+    return out
 
 
 def _list_do_wiadomosci(x: dict) -> "wysylka.EmailMessage":
@@ -31,6 +54,8 @@ def _list_do_wiadomosci(x: dict) -> "wysylka.EmailMessage":
         do_email=x["do_email"],
         temat=x["temat"],
         tresc=x["tresc"],
+        tresc_html=x.get("tresc_html"),
+        zalaczniki=_zalaczniki(x),
         odpowiedz_do=s.get("odpowiedz_do") or "",
         # Nagłówek diagnostyczny: po nim widać w cudzej skrzynce, który serwis
         # wysłał list, bez zaglądania do naszej bazy.
