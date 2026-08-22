@@ -544,6 +544,11 @@ def _tabela_wzorca(por: dict) -> str:
             f'<tr><td><span class="tyk">{e(p["ticker"])}</span>'
             + (' <span class="plak ok">core</span>' if p["rdzenna"] else "")
             + f'</td><td class="uwaga">{e(p["koszyk"])}</td>'
+            # Kolumna "Sheet" to wartość WPROST Z ARKUSZA. Bez niej nagłówek
+            # obiecywał osiem kolumn przy siedmiu komórkach, więc cała tabela
+            # była przesunięta o jedną pozycję: pod "Sheet" stał przeskalowany
+            # cel, pod "Target" stan faktyczny, a "Status" nie miał komórki.
+            f'<td class="l num mut" data-v="{p["cel_arkusz"]}">{p["cel_arkusz"]:.2f}%</td>'
             f'<td class="l num" data-v="{p["cel"]}">{p["cel"]:.2f}%</td>'
             f'<td class="l num" data-v="{p["faktyczne"]}">{p["faktyczne"]:.2f}%</td>'
             f'<td class="l num {"mut" if zgodne else _kl(p["roznica"])}" data-v="{p["roznica"]}">'
@@ -683,10 +688,11 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
     </div>
   </div>
 
-  <div class="karta"><h2>Baskets</h2><div class="przewin"><table><thead><tr>
-    <th>Basket</th><th class="l">Target</th><th class="l">Actual</th>
+  <div class="karta"><h2>Baskets<span class="obok">Sheet matches your model line for line; Target drops what you cannot buy and rescales the rest</span></h2><div class="przewin"><table><thead><tr>
+    <th>Basket</th><th class="l">Sheet</th><th class="l">Target</th><th class="l">Actual</th>
     <th class="l">Gap</th></tr></thead><tbody>
     {"".join(f'<tr><td>{e(k["koszyk"])}</td>'
+             f'<td class="l num mut">{k["cel_arkusz"]:.2f}%</td>'
              f'<td class="l num">{k["cel"]:.2f}%</td>'
              f'<td class="l num">{k["faktyczne"]:.2f}%</td>'
              f'<td class="l num {"mut" if k["zgodne"] else _kl(k["roznica"])}">'

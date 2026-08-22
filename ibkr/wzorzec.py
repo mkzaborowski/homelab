@@ -11,7 +11,7 @@ Układ arkusza, ustalony empirycznie:
   - gwiazdka przy nazwie oznacza pozycję rdzeniową, NIE wiersz zbiorczy,
     więc sumujemy wszystkie wiersze tickera (arkusz sam to wyjaśnia).
 
-Kontrola poprawności: suma udziałów wychodzi ~98%, reszta to gotówka.
+Kontrola poprawności: suma udziałów wychodzi ~94%, reszta to gotówka.
 """
 from __future__ import annotations
 
@@ -179,10 +179,21 @@ def porownaj(wzor: dict, pods: dict) -> dict:
     cel_kosz: dict[str, float] = defaultdict(float)
     for t, u in cel.items():
         cel_kosz[wzor["przypisanie"].get(t, "—")] += u
+    # Koszyk, z którego NIC nie da się kupić (np. Hedging Vehicles to same
+    # lewarowane ETF-y), nie trafiłby do cel_kosz i zniknąłby z panelu bez śladu.
+    # Arkusz ma go jednak w spisie, więc pokazujemy go z celem zero - inaczej
+    # zestawienie z arkuszem nie zgadza się co do liczby pozycji, a to wygląda
+    # na zgubione dane.
+    for nazwa in wzor["koszyki"]:
+        cel_kosz.setdefault(nazwa, 0.0)
+
     koszyki = []
     for nazwa, c in sorted(cel_kosz.items(), key=lambda x: -x[1]):
         f = fakt_kosz.get(nazwa, 0.0)
         koszyki.append({"koszyk": nazwa, "cel": c, "faktyczne": f, "roznica": f - c,
+                        # suma wprost z arkusza, razem z krypto i funduszami -
+                        # ta liczba ma się zgadzać z arkuszem co do setnych
+                        "cel_arkusz": wzor["koszyki"].get(nazwa, 0.0),
                         "zgodne": abs(f - c) <= PROG})
 
     licznik = defaultdict(int)

@@ -24,6 +24,7 @@ import ryzyko
 import scenariusze as scen
 import statystyki
 import widok
+import wzorzec
 import zwrot
 
 POLSKIE = re.compile(r"[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]")
@@ -96,6 +97,26 @@ def _analityka(hist: list[dict], pods: dict) -> dict:
     }
 
 
+# Wycinek arkusza wzorcowego w takim układzie, jaki naprawdę przychodzi
+# z Dysku: wiersz nagłówkowy koszyka, potem transze, gwiazdka przy rdzeniu.
+# Zakładka „Model" MUSI dostać prawdziwe dane - z porownanie=None renderuje się
+# tylko komunikat „nie udało się pobrać" i cała tabela nigdy nie jest sprawdzana.
+ARKUSZ_TESTOWY = (
+    "The AWP,Diversified Technology,% of portfolio assets,Company,Ticker\n"
+    ",% of total assets,6.05%,Tesla *,TSLA\n"
+    ",23.60%,1.51%,Tesla,TSLA\n"
+    ",,2.14%,ServiceNow *,NOW\n"
+    ",,2.93%,Schwab Dividend ETF,SCHD\n"
+    "The AWP,Hedging Vehicles,% of portfolio assets,Company,Ticker\n"
+    ",5.08%,2.48%,Direxion Bear,SPXS\n"
+    ",,2.60%,ProShares UltraShort,SQQQ\n"
+)
+
+
+def _porownanie(pods: dict) -> dict:
+    return wzorzec.porownaj(wzorzec.parsuj(ARKUSZ_TESTOWY), pods)
+
+
 def _strona() -> str:
     zrzut = _portfel()
     meta = {"TSLA": {"koszyk": "Emerging tech", "stop": 300.0},
@@ -118,7 +139,8 @@ def _strona() -> str:
               "ilosc": -3, "cena": 17.0, "kwota": 5100.0, "prowizja": -3.9,
               "zysk_zrealizowany": 0.0, "klasa": "OPT"}],
             ("2026-08-01", "2026-08-14", 1)),
-        analityka=_analityka(hist, pods))
+        analityka=_analityka(hist, pods),
+        porownanie=_porownanie(pods))
 
 
 def _widoczne(html: str) -> str:
@@ -229,3 +251,30 @@ def test_transze_pokazuja_sformatowana_date():
     html = _strona()
     assert "Buy 1 · 2026-06-10" in html
     assert ";" not in re.search(r'<tr class="lot".*?</tr>', html, re.S).group(0)
+
+
+def test_kazda_tabela_ma_tyle_komorek_ile_naglowkow():
+    """Nagłówek obiecujący więcej kolumn niż wypisuje wiersz przesuwa CAŁĄ tabelę.
+
+    Tak było w zestawieniu z portfelem wzorcowym: osiem nagłówków, siedem
+    komórek. Pod „Sheet" stał przeskalowany cel, pod „Target" stan faktyczny,
+    a wartość wprost z arkusza nie trafiała na ekran wcale - więc panelu nie
+    dało się zestawić z arkuszem i wyglądało to na złe dane, a nie na zsunięte
+    kolumny. Wygląd tego nie pokaże: tabela z przesunięciem rysuje się ładnie.
+    """
+    html = _strona()
+    tabele = re.findall(r"<table[^>]*>.*?</table>", html, re.S)
+    assert tabele, "na stronie nie ma ani jednej tabeli - test przestał cokolwiek sprawdzać"
+    for tab in tabele:
+        naglowki = re.findall(r"<th[ >]", tab)
+        if not naglowki:
+            continue                      # tabela układu, bez nagłówków
+        wiersze = re.findall(r"<tr[^>]*>(?:(?!</tr>).)*?</tr>", tab, re.S)
+        for w in wiersze:
+            komorki = re.findall(r"<td[ >]", w)
+            if not komorki:
+                continue                  # wiersz nagłówkowy albo pusty stan
+            assert len(komorki) == len(naglowki), (
+                f"wiersz ma {len(komorki)} komórek przy {len(naglowki)} nagłówkach:\n"
+                f"{w[:220]}"
+            )
