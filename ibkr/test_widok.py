@@ -456,3 +456,63 @@ def test_stochastyczny_bez_zakresu_daje_srodek_a_nie_wyjatek():
     import historia as hi
     k, d = hi.stochastyczny([5.0] * 20, [5.0] * 20, [5.0] * 20)
     assert k[-1] == 50.0
+
+
+def test_okno_dat_wycina_ale_nie_przelicza_wskaznikow():
+    """Po przybliżeniu do miesiąca średnia ze 100 sesji ma nadal istnieć.
+
+    Gdyby okno wycinać PRZED liczeniem, w oknie nie byłoby stu sesji i średnia
+    zniknęłaby z wykresu - a na ekranie wyglądałoby to jak brak danych,
+    nie jak błąd kolejności.
+    """
+    import przegladarka as pz
+    sesje = _sesje(300)
+    a, b = pz._okno(sesje, "", "")
+    assert (a, b) == (0, 300)
+
+
+def test_okno_wezsze_niz_dwie_sesje_wraca_do_calosci():
+    """Kliknięcie bez przeciągnięcia nie może zostawić jednej świecy
+    rozciągniętej na całą szerokość."""
+    import datetime as dt
+    import przegladarka as pz
+    sesje = _sesje(50)
+    dzien = dt.datetime.fromtimestamp(sesje[10]["czas"], dt.timezone.utc).strftime("%Y-%m-%d")
+    assert pz._okno(sesje, dzien, dzien) == (0, 50)
+
+
+def test_rysunek_niesie_dane_do_odczytu_pod_kursorem():
+    """Bez danych przy rysunku odczyt wymagałby pytania serwera przy każdym
+    ruchu myszy, czyli byłby niemożliwy."""
+    import json
+    import re
+    import przegladarka as pz
+
+    class _Historia:
+        ZAKRESY = pz.historia.ZAKRESY
+        @staticmethod
+        def pobierz(sym, zak="1y"):
+            return _sesje(150)
+    stara = pz.historia
+    pz.historia = type("H", (), {**{k: getattr(stara, k) for k in dir(stara) if not k.startswith("__")},
+                                 "pobierz": staticmethod(lambda s, z="1y": _sesje(150))})
+    try:
+        html = pz.rysuj("TEST", pz.ustawienia({"osc": "rsi"}))
+    finally:
+        pz.historia = stara
+
+    m = re.search(r'<script type="application/json" class="wyk-dane">(.*?)</script>', html, re.S)
+    assert m, "rysunek przyszedł bez danych"
+    d = json.loads(m.group(1))
+    assert len(d["daty"]) == len(d["c"]) == 150
+    assert [s["n"] for s in d["serie"]] == ["SMA(50)", "SMA(100)", "RSI(14)"]
+
+
+def test_svg_niesie_geometrie_potrzebna_do_krzyza():
+    """Przeglądarka musi umieć przeliczyć pozycję kursora na indeks sesji.
+    Bez tych atrybutów wykres jest obrazkiem, a nie narzędziem."""
+    import wykresy
+    svg = wykresy.wykres_ceny(_sesje(120), wolumen=True, symbol="TEST")
+    for atrybut in ("data-x0", "data-krok", "data-n", "data-gora", "data-dol"):
+        assert atrybut in svg, f"brak {atrybut}"
+    assert 'class="wyk-lapacz"' in svg and 'class="wyk-krzyz"' in svg

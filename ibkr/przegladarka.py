@@ -9,6 +9,10 @@ Cały rysunek powstaje po stronie serwera, jak każdy inny wykres w tym panelu.
 """
 from __future__ import annotations
 
+import datetime as dt
+import json
+from html import escape as e
+
 import historia
 import wykresy
 
@@ -58,7 +62,31 @@ def ustawienia(p: dict) -> dict:
         "wolumen": _flaga(p.get("wol"), True),
         "oscylatory": [o for o in (p.get("osc", "rsi") or "").split(",")
                        if o.strip() in OSCYLATORY][:3],
+        # Okno wybrane myszą na wykresie. Daty, nie indeksy: indeks znaczy co
+        # innego po każdej zmianie zakresu albo interwału, więc link z indeksami
+        # pokazywałby po tygodniu inny fragment.
+        "od": (p.get("od") or "").strip()[:10],
+        "do": (p.get("do") or "").strip()[:10],
     }
+
+
+def _okno(sesje: list[dict], od: str, do: str) -> tuple[int, int]:
+    """Indeksy [pierwszy, ostatni+1] sesji mieszczących się w oknie dat."""
+    if not od and not do:
+        return 0, len(sesje)
+    def dzien(x: dict) -> str:
+        return dt.datetime.fromtimestamp(x["czas"], dt.timezone.utc).strftime("%Y-%m-%d")
+    i = 0
+    j = len(sesje)
+    if od:
+        while i < j and dzien(sesje[i]) < od:
+            i += 1
+    if do:
+        while j > i and dzien(sesje[j - 1]) > do:
+            j -= 1
+    # Okno węższe niż dwie sesje nie jest wykresem - wracamy do całości
+    # zamiast rysować jedną świecę na całą szerokość.
+    return (0, len(sesje)) if j - i < 2 else (i, j)
 
 
 def rysuj(symbol: str, ust: dict) -> str:
@@ -66,6 +94,11 @@ def rysuj(symbol: str, ust: dict) -> str:
     sesje = historia.pobierz(symbol, ust["zakres"])
     if not sesje:
         return '<p class="wyk-brak">Price history unavailable right now.</p>'
+
+    # Wskaźniki liczymy z PEŁNEGO zakresu, a okno wycinamy dopiero na końcu.
+    # Odwrotna kolejność znaczyłaby, że po przybliżeniu do miesiąca średnia
+    # ze 100 sesji znika - bo w oknie nie ma stu sesji, choć w danych są.
+    wyciete = _okno(sesje, ust["od"], ust["do"])
 
     z = [s["zamkniecie"] for s in sesje]
     hi = [s["max"] for s in sesje]
@@ -110,5 +143,41 @@ def rysuj(symbol: str, ust: dict) -> str:
                           {"nazwa": "%D", "wartosci": d, "kolor": "#FF9500"}],
             })
 
-    return wykresy.wykres_ceny(sesje, nakladki=nakladki, oscylatory=oscylatory,
-                               wolumen=ust["wolumen"], symbol=symbol, typ=ust["typ"])
+    a, b = wyciete
+    if (a, b) != (0, len(sesje)):
+        sesje = sesje[a:b]
+        for nak in nakladki:
+            nak["wartosci"] = nak["wartosci"][a:b]
+        for o in oscylatory:
+            for sr in o["serie"]:
+                sr["wartosci"] = sr["wartosci"][a:b]
+            if o.get("histogram"):
+                o["histogram"] = o["histogram"][a:b]
+
+    svg = wykresy.wykres_ceny(sesje, nakladki=nakladki, oscylatory=oscylatory,
+                              wolumen=ust["wolumen"], symbol=symbol, typ=ust["typ"])
+
+    # Dane jadą razem z rysunkiem, w <script type="application/json">.
+    # Przeglądarka takiego bloku NIE wykonuje - to zwykły tekst do odczytania.
+    # Bez tego odczyt pod kursorem wymagałby pytania serwera przy każdym ruchu
+    # myszy, czyli byłby niemożliwy.
+    serie = [{"n": n["nazwa"], "k": n["kolor"], "w": n["wartosci"]}
+             for n in nakladki if n["nazwa"]]
+    for o in oscylatory:
+        for sr in o["serie"]:
+            nazwa = f'{o["nazwa"]} {sr["nazwa"]}'.strip()
+            serie.append({"n": nazwa, "k": sr["kolor"], "w": sr["wartosci"]})
+
+    dane = {
+        "symbol": symbol,
+        "daty": [dt.datetime.fromtimestamp(x["czas"], dt.timezone.utc).strftime("%Y-%m-%d") for x in sesje],
+        "o": [x["otwarcie"] for x in sesje], "h": [x["max"] for x in sesje],
+        "l": [x["min"] for x in sesje], "c": [x["zamkniecie"] for x in sesje],
+        "v": [x["wolumen"] for x in sesje],
+        "serie": serie,
+    }
+    # separators bez spacji: przy 250 sesjach i ośmiu seriach to kilkanaście
+    # kilobajtów różnicy na każdym przerysowaniu
+    ladunek = json.dumps(dane, separators=(",", ":"), default=lambda v: None)
+    return (f'{svg}<script type="application/json" class="wyk-dane">'
+            f'{e(ladunek, quote=False)}</script>')

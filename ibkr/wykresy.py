@@ -739,8 +739,14 @@ def wykres_ceny(sesje: list[dict], nakladki: list[dict] | None = None,
     def y(v: float) -> float:
         return GORA + WYS_CENA - (v - lo) / (hi - lo) * WYS_CENA
 
-    w = [f'<svg viewBox="0 0 {SZ:.0f} {wys:.0f}" width="100%" height="auto" role="img" '
-         f'preserveAspectRatio="xMidYMid meet" aria-label="{e(symbol)}: price chart '
+    # Geometria jedzie w atrybutach: przeglądarka musi umieć przeliczyć pozycję
+    # kursora na indeks sesji, żeby postawić krzyż i odczytać wartości. Bez tego
+    # wykres jest obrazkiem, a nie narzędziem.
+    w = [f'<svg viewBox="0 0 {SZ:.0f} {wys:.0f}" width="100%" height="auto" '
+         f'preserveAspectRatio="xMidYMid meet" class="wyk-svg" '
+         f'data-x0="{LEWY:.3f}" data-krok="{krok:.5f}" data-n="{n}" '
+         f'data-gora="{GORA:.1f}" data-dol="{wys - 20:.1f}" data-prawy="{SZ - PRAWY:.1f}" '
+         f'role="img" aria-label="{e(symbol)}: price chart '
          f'with {len(nakladki)} overlays and {len(oscylatory)} oscillators">']
 
     for u in (0.0, 0.25, 0.5, 0.75, 1.0):
@@ -846,5 +852,11 @@ def wykres_ceny(sesje: list[dict], nakladki: list[dict] | None = None,
             przes += len(tekst) * 6.6 + 10
         dol += WYS_OSC
 
+    # Warstwa krzyża i pole reagujące na kursor. Pole jest przezroczyste
+    # i leży na wierzchu, żeby ruch myszy nad świecą trafiał w jedną,
+    # przewidywalną powierzchnię, a nie w setki osobnych prostokątów.
+    w.append(f'<g class="wyk-krzyz" aria-hidden="true"></g>'
+             f'<rect class="wyk-lapacz" x="{LEWY}" y="{GORA}" width="{pole:.1f}" '
+             f'height="{wys - 20 - GORA:.1f}" fill="transparent"/>')
     w.append("</svg>")
     return "".join(w)

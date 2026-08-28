@@ -82,6 +82,40 @@ tr.wykres>td{padding:14px 15px;background:var(--tlo)}
 .wyk-zakres.akt{background:var(--akcent);color:#fff}
 .wyk-osc{display:inline-flex;gap:12px}
 .wyk-ramka[aria-busy=true]{opacity:.45;transition:opacity .15s}
+/* --- odczyt pod kursorem ---
+   Pasek jest MATERIAŁEM leżącym nad wykresem, nie kolejnym wierszem tabeli:
+   przykrywa górny fragment rysunku, więc nie przesuwa go przy pojawieniu się
+   i oko nie musi skakać między krzyżem a liczbami na dole ekranu. */
+.wyk-plotno{position:relative}
+.wyk-odczyt{position:absolute;top:8px;left:8px;right:8px;z-index:2;display:flex;
+  flex-wrap:wrap;align-items:baseline;gap:2px 14px;padding:7px 11px;border-radius:8px;
+  background:color-mix(in srgb, var(--plyta) 82%, transparent);
+  border:1px solid var(--linia);backdrop-filter:blur(14px) saturate(160%);
+  -webkit-backdrop-filter:blur(14px) saturate(160%);
+  box-shadow:0 8px 22px -14px rgba(0,0,0,.5);
+  font-size:11.5px;color:var(--tekst-2);font-variant-numeric:tabular-nums;
+  opacity:0;transform:translateY(-3px);transition:opacity .16s ease,transform .16s ease;
+  pointer-events:none}
+.wyk-odczyt.widoczny{opacity:1;transform:none}
+.wyk-odczyt i{font-style:normal;color:var(--tekst-3);margin-right:4px;
+  font-size:10px;letter-spacing:.04em;text-transform:uppercase}
+.wyk-odczyt b{font-weight:650;color:var(--tekst)}
+.wyk-odczyt .wyk-data{font-weight:650;color:var(--tekst);letter-spacing:-.01em}
+.wyk-odczyt .wz{color:var(--wzrost)}
+.wyk-odczyt .sp{color:var(--spadek)}
+
+/* krzyż i zaznaczenie rysują się w SVG, więc kolory biorą z motywu */
+.wyk-os{stroke:var(--tekst-3);stroke-width:1;stroke-dasharray:3 3;opacity:.75}
+.wyk-zazn{fill:var(--akcent);opacity:.14;stroke:var(--akcent);stroke-width:1;stroke-opacity:.5}
+.wyk-lapacz{cursor:crosshair}
+.wyk-svg:focus{outline:2px solid var(--akcent);outline-offset:2px;border-radius:4px}
+.wyk-svg:focus:not(:focus-visible){outline:none}
+.wyk-podpowiedz{margin-top:6px;font-size:11px;color:var(--tekst-3)}
+
+@media (prefers-reduced-motion: reduce){
+  .wyk-odczyt{transition:none;transform:none}
+  .wyk-ramka[aria-busy=true]{transition:none}
+}
 .zakladki button[aria-selected=true]{color:var(--akcent);border-bottom-color:var(--akcent)}
 
 .wrap{max-width:1400px;margin:0 auto;padding:18px 20px 40px}
@@ -328,6 +362,164 @@ SKRYPT = r"""
     });
   }
 
+  // --- interakcja z wykresem: krzyż, odczyt, zaznaczanie zakresu ---
+  //
+  // Wszystko dzieje się po stronie przeglądarki, na danych dołączonych do
+  // rysunku. Pytanie serwera przy każdym ruchu myszy byłoby niewykonalne,
+  // a bez odczytu pod kursorem wykres pozostaje obrazkiem.
+  //
+  // Ruch śledzimy WSKAŹNIKIEM (Pointer Events), nie myszą: ta sama ścieżka
+  // obsługuje palec na tablecie i rysik, a przechwycenie wskaźnika sprawia,
+  // że zaznaczanie nie gubi się, gdy kursor wyjedzie poza wykres.
+  var BEZ_RUCHU = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function podepnijWykres(ramka){
+    var svg = ramka.querySelector('svg.wyk-svg');
+    var blok = ramka.querySelector('script.wyk-dane');
+    if (!svg || !blok) return;
+
+    var dane;
+    try { dane = JSON.parse(blok.textContent); } catch (e) { return; }
+
+    var x0 = parseFloat(svg.dataset.x0), krok = parseFloat(svg.dataset.krok);
+    var n = parseInt(svg.dataset.n, 10);
+    var gora = parseFloat(svg.dataset.gora), dolG = parseFloat(svg.dataset.dol);
+    var prawy = parseFloat(svg.dataset.prawy);
+    var warstwa = svg.querySelector('.wyk-krzyz');
+    var lapacz = svg.querySelector('.wyk-lapacz');
+    if (!warstwa || !lapacz) return;
+
+    var odczyt = ramka.closest('.wyk-plotno').querySelector('.wyk-odczyt');
+    var iBiez = -1, zaznOd = null;
+
+    function svgX(ev){
+      var r = svg.getBoundingClientRect();
+      return (ev.clientX - r.left) / r.width * svg.viewBox.baseVal.width;
+    }
+    function svgY(ev){
+      var r = svg.getBoundingClientRect();
+      return (ev.clientY - r.top) / r.height * svg.viewBox.baseVal.height;
+    }
+    function indeks(x){
+      var i = Math.round((x - x0) / krok - 0.5);
+      return Math.max(0, Math.min(n - 1, i));
+    }
+    function xInd(i){ return x0 + krok * (i + 0.5); }
+
+    function liczba(v, mp){
+      if (v === null || v === undefined) return '—';
+      return v.toLocaleString('en-US', {minimumFractionDigits: mp === undefined ? 2 : mp,
+                                        maximumFractionDigits: mp === undefined ? 2 : mp});
+    }
+    function wolumen(v){
+      if (!v) return '—';
+      if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+      if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+      if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+      return String(Math.round(v));
+    }
+
+    function pokazOdczyt(i){
+      if (!odczyt) return;
+      var zm = i > 0 ? (dane.c[i] - dane.c[i-1]) / dane.c[i-1] * 100 : null;
+      var kl = zm === null ? '' : (zm >= 0 ? 'wz' : 'sp');
+      var czesci = [
+        '<span class="wyk-data">' + dane.daty[i] + '</span>',
+        '<span><i>O</i>' + liczba(dane.o[i]) + '</span>',
+        '<span><i>H</i>' + liczba(dane.h[i]) + '</span>',
+        '<span><i>L</i>' + liczba(dane.l[i]) + '</span>',
+        '<span><i>C</i><b>' + liczba(dane.c[i]) + '</b></span>',
+        '<span class="' + kl + '">' + (zm === null ? '' : (zm >= 0 ? '+' : '') + zm.toFixed(2) + '%') + '</span>',
+        '<span><i>Vol</i>' + wolumen(dane.v[i]) + '</span>'
+      ];
+      dane.serie.forEach(function(sr){
+        czesci.push('<span style="color:' + sr.k + '"><i>' + sr.n + '</i>' + liczba(sr.w[i]) + '</span>');
+      });
+      odczyt.innerHTML = czesci.join('');
+      odczyt.classList.add('widoczny');
+    }
+
+    function schowajOdczyt(){
+      if (odczyt) odczyt.classList.remove('widoczny');
+      warstwa.innerHTML = '';
+      iBiez = -1;
+    }
+
+    function rysujKrzyz(i, y){
+      var x = xInd(i);
+      var el = '<line x1="' + x.toFixed(2) + '" y1="' + gora + '" x2="' + x.toFixed(2) +
+               '" y2="' + dolG + '" class="wyk-os"/>';
+      if (y !== null && y >= gora && y <= dolG) {
+        el += '<line x1="' + x0 + '" y1="' + y.toFixed(2) + '" x2="' + prawy +
+              '" y2="' + y.toFixed(2) + '" class="wyk-os"/>';
+      }
+      warstwa.innerHTML = el;
+    }
+
+    lapacz.addEventListener('pointermove', function(ev){
+      var i = indeks(svgX(ev));
+      if (zaznOd !== null) { rysujZaznaczenie(zaznOd, i); pokazOdczyt(i); return; }
+      if (i !== iBiez) { iBiez = i; pokazOdczyt(i); }
+      rysujKrzyz(i, svgY(ev));
+    });
+    lapacz.addEventListener('pointerleave', function(){ if (zaznOd === null) schowajOdczyt(); });
+
+    function rysujZaznaczenie(a, b){
+      var od = Math.min(a, b), do_ = Math.max(a, b);
+      var x = xInd(od) - krok / 2, sz = (do_ - od + 1) * krok;
+      warstwa.innerHTML = '<rect class="wyk-zazn" x="' + x.toFixed(2) + '" y="' + gora +
+                          '" width="' + sz.toFixed(2) + '" height="' + (dolG - gora).toFixed(2) + '"/>';
+    }
+
+    lapacz.addEventListener('pointerdown', function(ev){
+      if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+      zaznOd = indeks(svgX(ev));
+      lapacz.setPointerCapture(ev.pointerId);   // zaznaczanie nie gubi się poza wykresem
+      rysujZaznaczenie(zaznOd, zaznOd);
+    });
+
+    lapacz.addEventListener('pointerup', function(ev){
+      if (zaznOd === null) return;
+      var a = zaznOd, b = indeks(svgX(ev));
+      zaznOd = null;
+      try { lapacz.releasePointerCapture(ev.pointerId); } catch (e) {}
+      // Trzy sesje to próg celowo niski, ale nie zerowy: bez niego zwykłe
+      // kliknięcie w wykres przybliżałoby do jednej świecy.
+      if (Math.abs(b - a) < 3) { warstwa.innerHTML = ''; return; }
+      var form = ramka.closest('tr').querySelector('.wyk-ster');
+      form.querySelector('input[name=od]').value = dane.daty[Math.min(a, b)];
+      form.querySelector('input[name=do]').value = dane.daty[Math.max(a, b)];
+      rysujWykres(form.dataset.sym);
+    });
+
+    // Podwójne kliknięcie zdejmuje przybliżenie. Jest odpowiednikiem
+    // „wróć", którego przy zaznaczaniu myszą szuka się odruchowo.
+    lapacz.addEventListener('dblclick', function(){
+      var form = ramka.closest('tr').querySelector('.wyk-ster');
+      if (!form.querySelector('input[name=od]').value) return;
+      form.querySelector('input[name=od]').value = '';
+      form.querySelector('input[name=do]').value = '';
+      rysujWykres(form.dataset.sym);
+    });
+
+    // Klawiatura: wykres bez niej jest niedostępny dla kogoś, kto nie używa
+    // myszy. Strzałki przesuwają krzyż, Escape go zdejmuje.
+    svg.setAttribute('tabindex', '0');
+    svg.addEventListener('keydown', function(ev){
+      var skok = ev.shiftKey ? 10 : 1;
+      if (ev.key === 'ArrowRight' || ev.key === 'ArrowLeft') {
+        ev.preventDefault();
+        var i = iBiez < 0 ? n - 1 : iBiez + (ev.key === 'ArrowRight' ? skok : -skok);
+        iBiez = Math.max(0, Math.min(n - 1, i));
+        rysujKrzyz(iBiez, null);
+        pokazOdczyt(iBiez);
+      } else if (ev.key === 'Escape') {
+        schowajOdczyt();
+      }
+    });
+    svg.addEventListener('blur', schowajOdczyt);
+  }
+
   // --- przeglądarka wykresu ---
   // Ustawienia czytamy z formularza przy każdej zmianie i wysyłamy w adresie
   // rysunku. Dzięki temu stan wykresu ma jedno miejsce - pola formularza -
@@ -350,6 +542,8 @@ SKRYPT = r"""
     q.set('bb', dane.get('bb') ? '1' : '0');
     q.set('wol', dane.get('wol') ? '1' : '0');
     q.set('osc', dane.getAll('osc').join(','));
+    q.set('od', dane.get('od') || '');
+    q.set('do', dane.get('do') || '');
 
     // Kolejne żądanie unieważnia poprzednie: przy szybkim klikaniu zakresów
     // odpowiedzi wracają w dowolnej kolejności i bez tego na ekranie
@@ -363,6 +557,7 @@ SKRYPT = r"""
         if (wCzasie[sym] !== bilet) return;
         ramka.innerHTML = svg;
         ramka.removeAttribute('aria-busy');
+        podepnijWykres(ramka);
       })
       .catch(function(){
         if (wCzasie[sym] !== bilet) return;
@@ -526,6 +721,8 @@ def _sterowanie(sym: str) -> str:
         f'<form class="wyk-ster" data-sym="{sym}">'
         f'<div class="wyk-grupa" role="group" aria-label="Time range">{zakresy}</div>'
         f'<input type="hidden" name="zakres" value="1y">'
+        f'<input type="hidden" name="od" value="">'
+        f'<input type="hidden" name="do" value="">'
         f'<label class="wyk-pole">SMA <input name="sma" value="50,100" size="10" '
         f'inputmode="numeric" placeholder="50,100,200"></label>'
         f'<label class="wyk-pole">EMA <input name="ema" value="" size="8" '
@@ -553,10 +750,13 @@ def _wiersz_wykresu(symbol: str, kosz: str, kolumn: int) -> str:
     return (f'<tr class="wykres" data-kosz="{kosz}" data-wykres-of="{sym}" hidden>'
             f'<td colspan="{kolumn}">'
             f'{_sterowanie(sym)}'
+            f'<div class="wyk-plotno">'
+            f'<div class="wyk-odczyt" aria-live="polite"></div>'
             f'<div class="wyk-ramka" data-sym="{sym}">'
             f'<p class="wyk-brak">Loading…</p></div>'
+            f'</div>'
             f'<div class="wyk-stopka">'
-            f'<span>Data: Yahoo Finance · drawn server-side</span>'
+            f'<span>Drag to zoom · double-click to reset · arrow keys move the crosshair</span>'
             f'<a href="https://stockcharts.com/h-sc/ui?s={quote(symbol.upper(), safe="")}" '
             f'target="_blank" rel="noopener noreferrer">open on StockCharts →</a>'
             f'</div></td></tr>')
