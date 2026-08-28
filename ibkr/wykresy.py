@@ -677,3 +677,174 @@ def swiece_z_rsi(sesje: list[dict], sma100: list[float | None],
 
     w.append("</svg>")
     return "".join(w)
+
+
+# --------------------------------------------------------------------------- #
+#  przeglądarka wykresów
+# --------------------------------------------------------------------------- #
+
+def _linia(punkty: list[tuple[float, float]], kolor: str, grubosc: float = 1.5,
+           kreska: str = "") -> str:
+    if len(punkty) < 2:
+        return ""
+    d = " ".join(f"{x:.2f},{y:.2f}" for x, y in punkty)
+    dash = f' stroke-dasharray="{kreska}"' if kreska else ""
+    return (f'<polyline points="{d}" fill="none" stroke="{kolor}" stroke-width="{grubosc}" '
+            f'stroke-linejoin="round" stroke-linecap="round"{dash}/>')
+
+
+def wykres_ceny(sesje: list[dict], nakladki: list[dict] | None = None,
+                oscylatory: list[dict] | None = None, wolumen: bool = True,
+                symbol: str = "", typ: str = "swiece") -> str:
+    """Wykres ceny z dowolną liczbą nakładek i paneli oscylatorów.
+
+    Panele dzielą OŚ CZASU, ale każdy ma własną skalę pionową - inaczej RSI
+    w zakresie 0-100 spłaszczyłby cenę idącą w setkach do jednej linii.
+
+    Wysokość rośnie z liczbą paneli, a nie ściska istniejące: sześć wskaźników
+    upchniętych w stałą wysokość daje sześć nieczytelnych pasków zamiast
+    jednego czytelnego wykresu.
+    """
+    if not sesje:
+        return '<p class="wyk-brak">No price history.</p>'
+
+    nakladki = nakladki or []
+    oscylatory = oscylatory or []
+
+    SZ, LEWY, PRAWY, GORA = 760.0, 6.0, 52.0, 8.0
+    WYS_CENA = 280.0
+    WYS_WOL = 46.0 if wolumen else 0.0
+    WYS_OSC, PRZERWA = 84.0, 22.0
+    wys = (GORA + WYS_CENA + (PRZERWA + WYS_WOL if wolumen else 0)
+           + sum(PRZERWA + WYS_OSC for _ in oscylatory) + 20)
+    pole = SZ - LEWY - PRAWY
+    n = len(sesje)
+    krok = pole / n
+    korpus = max(1.0, min(7.0, krok * 0.62))
+
+    lo = min(s["min"] for s in sesje)
+    hi = max(s["max"] for s in sesje)
+    for nak in nakladki:
+        for v in nak["wartosci"]:
+            if v is not None:
+                lo, hi = min(lo, v), max(hi, v)
+    if hi <= lo:
+        hi = lo + 1.0
+    m = (hi - lo) * 0.04
+    lo, hi = lo - m, hi + m
+
+    def x(i: int) -> float:
+        return LEWY + krok * (i + 0.5)
+
+    def y(v: float) -> float:
+        return GORA + WYS_CENA - (v - lo) / (hi - lo) * WYS_CENA
+
+    w = [f'<svg viewBox="0 0 {SZ:.0f} {wys:.0f}" width="100%" height="auto" role="img" '
+         f'preserveAspectRatio="xMidYMid meet" aria-label="{e(symbol)}: price chart '
+         f'with {len(nakladki)} overlays and {len(oscylatory)} oscillators">']
+
+    for u in (0.0, 0.25, 0.5, 0.75, 1.0):
+        v = lo + (hi - lo) * u
+        yy = y(v)
+        w.append(f'<line x1="{LEWY}" y1="{yy:.1f}" x2="{SZ - PRAWY:.1f}" y2="{yy:.1f}" '
+                 f'stroke="{SIATKA}" stroke-width="1"/>'
+                 f'<text x="{SZ - PRAWY + 5:.1f}" y="{yy + 3.5:.1f}" font-size="10" '
+                 f'fill="{TEKST_SLABY}" style="font-variant-numeric:tabular-nums">{v:,.2f}</text>')
+
+    if typ == "linia":
+        w.append(_linia([(x(i), y(s["zamkniecie"])) for i, s in enumerate(sesje)], AKCENT, 1.6))
+    else:
+        for i, s in enumerate(sesje):
+            xi = x(i)
+            kol = WZROST if s["zamkniecie"] >= s["otwarcie"] else SPADEK
+            gk, dk = y(max(s["otwarcie"], s["zamkniecie"])), y(min(s["otwarcie"], s["zamkniecie"]))
+            w.append(f'<line x1="{xi:.2f}" y1="{y(s["max"]):.2f}" x2="{xi:.2f}" '
+                     f'y2="{y(s["min"]):.2f}" stroke="{kol}" stroke-width="1"/>'
+                     f'<rect x="{xi - korpus / 2:.2f}" y="{gk:.2f}" width="{korpus:.2f}" '
+                     f'height="{max(0.8, dk - gk):.2f}" fill="{kol}"/>')
+
+    # legenda nakładek stoi w lewym górnym rogu, jedna pod drugą
+    wiersz_legendy = 0
+    for nak in nakladki:
+        pkt = [(x(i), y(v)) for i, v in enumerate(nak["wartosci"]) if v is not None]
+        w.append(_linia(pkt, nak["kolor"], nak.get("grubosc", 1.5), nak.get("kreska", "")))
+        # Nakładka bez nazwy (druga wstęga Bollingera) rysuje się, ale nie
+        # zajmuje wiersza legendy - inaczej stałaby tam naga liczba bez opisu.
+        if not nak["nazwa"]:
+            continue
+        ost = next((v for v in reversed(nak["wartosci"]) if v is not None), None)
+        etykieta = nak["nazwa"] + (f" {ost:,.2f}" if ost is not None else "")
+        w.append(f'<text x="{LEWY + 4:.1f}" y="{GORA + 12 + wiersz_legendy * 13:.1f}" font-size="10.5" '
+                 f'fill="{nak["kolor"]}" style="font-variant-numeric:tabular-nums">{e(etykieta)}</text>')
+        wiersz_legendy += 1
+
+    dol = GORA + WYS_CENA
+
+    if wolumen:
+        dol += PRZERWA
+        maks_w = max((s["wolumen"] for s in sesje), default=0.0) or 1.0
+        for i, s in enumerate(sesje):
+            h = s["wolumen"] / maks_w * WYS_WOL
+            kol = WZROST if s["zamkniecie"] >= s["otwarcie"] else SPADEK
+            w.append(f'<rect x="{x(i) - korpus / 2:.2f}" y="{dol + WYS_WOL - h:.2f}" '
+                     f'width="{korpus:.2f}" height="{max(0.5, h):.2f}" fill="{kol}" opacity=".45"/>')
+        w.append(f'<text x="{LEWY + 4:.1f}" y="{dol + 11:.1f}" font-size="10" '
+                 f'fill="{TEKST_SLABY}">Volume</text>')
+        dol += WYS_WOL
+
+    for osc in oscylatory:
+        dol += PRZERWA
+        o_lo, o_hi = osc.get("zakres") or (None, None)
+        wszystkie = [v for s in osc["serie"] for v in s["wartosci"] if v is not None]
+        wszystkie += [v for v in (osc.get("histogram") or []) if v is not None]
+        if not wszystkie:
+            continue
+        if o_lo is None:
+            o_lo, o_hi = min(wszystkie), max(wszystkie)
+            rozp = (o_hi - o_lo) or 1.0
+            o_lo, o_hi = o_lo - rozp * 0.1, o_hi + rozp * 0.1
+
+        def yo(v: float, _lo=o_lo, _hi=o_hi, _d=dol) -> float:
+            return _d + WYS_OSC - (v - _lo) / ((_hi - _lo) or 1.0) * WYS_OSC
+
+        for prog in osc.get("progi") or []:
+            if o_lo <= prog <= o_hi:
+                w.append(f'<line x1="{LEWY}" y1="{yo(prog):.1f}" x2="{SZ - PRAWY:.1f}" '
+                         f'y2="{yo(prog):.1f}" stroke="{SIATKA}" stroke-width="1" '
+                         f'stroke-dasharray="3 3"/>'
+                         f'<text x="{SZ - PRAWY + 5:.1f}" y="{yo(prog) + 3.5:.1f}" font-size="10" '
+                         f'fill="{TEKST_SLABY}">{prog:g}</text>')
+
+        for i, v in enumerate(osc.get("histogram") or []):
+            if v is None:
+                continue
+            zero = yo(0.0) if o_lo <= 0 <= o_hi else yo(o_lo)
+            yy = yo(v)
+            w.append(f'<rect x="{x(i) - korpus / 2:.2f}" y="{min(yy, zero):.2f}" '
+                     f'width="{korpus:.2f}" height="{max(0.6, abs(zero - yy)):.2f}" '
+                     f'fill="{WZROST if v >= 0 else SPADEK}" opacity=".55"/>')
+
+        for s in osc["serie"]:
+            w.append(_linia([(x(i), yo(v)) for i, v in enumerate(s["wartosci"]) if v is not None],
+                            s["kolor"], s.get("grubosc", 1.4), s.get("kreska", "")))
+
+        etykiety = []
+        for s in osc["serie"]:
+            ost = next((v for v in reversed(s["wartosci"]) if v is not None), None)
+            if ost is not None:
+                etykiety.append((s.get("nazwa", ""), f"{ost:,.2f}", s["kolor"]))
+        w.append(f'<text x="{LEWY + 4:.1f}" y="{dol + 11:.1f}" font-size="10.5" '
+                 f'fill="{TEKST_SLABY}">{e(osc["nazwa"])}</text>')
+        # 6.6 px na znak przy 10.5 px kroju z zapasem - bez tego „Stoch(14,3)"
+        # wchodziło pod etykietę %K. SVG nie umie zmierzyć tekstu przed
+        # narysowaniem, więc szerokość trzeba oszacować z góry.
+        przes = LEWY + 10 + len(osc["nazwa"]) * 6.6
+        for nazwa, wart, kol in etykiety:
+            tekst = f"{nazwa} {wart}".strip()
+            w.append(f'<text x="{przes:.1f}" y="{dol + 11:.1f}" font-size="10.5" fill="{kol}" '
+                     f'style="font-variant-numeric:tabular-nums">{e(tekst)}</text>')
+            przes += len(tekst) * 6.6 + 10
+        dol += WYS_OSC
+
+    w.append("</svg>")
+    return "".join(w)

@@ -79,7 +79,7 @@ def wykres_spolki(sym: str):
     wejście w zakładkę, z czego widać jeden. Panel dociąga rysunek dopiero
     po kliknięciu w konkretną spółkę.
     """
-    svg = widok.wykres_symbolu(sym)
+    svg = widok.wykres_symbolu(sym, request.args.to_dict(flat=True))
     # Notowania dzienne zmieniają się raz na sesję - pozwalamy przeglądarce
     # trzymać rysunek godzinę, żeby powtórne otwarcie było natychmiastowe.
     return svg, 200, {"Content-Type": "image/svg+xml; charset=utf-8",

@@ -356,3 +356,103 @@ def test_symbol_opcji_nie_dostaje_wykresu():
     assert widok._SYMBOL_WYKRESU.match("BRK.B")
     assert not widok._SYMBOL_WYKRESU.match("AAPL 260918C00250000")
     assert not widok._SYMBOL_WYKRESU.match("")
+
+
+# --------------------------------------------------------------------------- #
+#  przeglądarka wykresów
+# --------------------------------------------------------------------------- #
+
+def _sesje(ile: int = 300) -> list[dict]:
+    cena, out = 100.0, []
+    for i in range(ile):
+        cena *= 1.004 if i % 3 else 0.995
+        out.append({"czas": 1_700_000_000 + i * 86400, "otwarcie": cena * 0.99,
+                    "max": cena * 1.02, "min": cena * 0.97,
+                    "zamkniecie": cena, "wolumen": 1000.0 + i})
+    return out
+
+
+def test_ustawienia_odsiewaja_smieci_z_adresu():
+    """Parametry przychodzą z adresu, więc może w nich być cokolwiek.
+    Zły zakres, ujemny okres i nieistniejący oscylator mają zniknąć, a nie
+    wywrócić stronę."""
+    import przegladarka as pz
+    u = pz.ustawienia({"zakres": "xxx", "sma": "abc,-5,0,999999,50",
+                       "osc": "rsi,nieistnieje", "typ": "krzaczki"})
+    assert u["zakres"] == "1y"
+    assert u["sma"] == [50]
+    assert u["oscylatory"] == ["rsi"]
+    assert u["typ"] == "swiece"
+
+
+def test_liczba_srednich_jest_ograniczona():
+    """Dziesięć średnich na jednym wykresie to nie wykres, tylko sieć —
+    a każda dokłada przeliczenie całej serii."""
+    import przegladarka as pz
+    u = pz.ustawienia({"sma": "5,10,15,20,25,30,35,40"})
+    assert len(u["sma"]) == pz.OKRESY_MAKS
+
+
+def test_wykres_rysuje_wszystkie_zamowione_warstwy():
+    import historia as hi
+    import wykresy
+    s = _sesje()
+    z = [x["zamkniecie"] for x in s]
+    svg = wykresy.wykres_ceny(
+        s,
+        nakladki=[{"nazwa": "SMA(100)", "wartosci": hi.sma(z, 100), "kolor": "#0071E3"}],
+        oscylatory=[{"nazwa": "RSI(14)", "zakres": (0, 100), "progi": [30, 70],
+                     "serie": [{"nazwa": "", "wartosci": hi.rsi(z), "kolor": "#0071E3"}]}],
+        wolumen=True, symbol="TEST")
+    assert "SMA(100)" in svg and "RSI(14)" in svg and "Volume" in svg
+    assert svg.count("<rect") > 300      # korpusy świec + słupki wolumenu
+
+
+def test_nakladka_bez_nazwy_nie_zajmuje_wiersza_legendy():
+    """Druga wstęga Bollingera rysuje się, ale nie ma czego podpisać —
+    naga liczba bez etykiety wyglądała jak usterka."""
+    import wykresy
+    s = _sesje(120)
+    svg = wykresy.wykres_ceny(s, nakladki=[
+        {"nazwa": "BB", "wartosci": [x["max"] for x in s], "kolor": "#888"},
+        {"nazwa": "", "wartosci": [x["min"] for x in s], "kolor": "#888"},
+    ], wolumen=False, symbol="TEST")
+    assert svg.count("BB") == 1
+
+
+def test_kazdy_zakres_czasu_ma_swoj_interwal():
+    """Pięć lat sesji dziennych to 1250 świec, których i tak nie widać.
+    Powyżej dwóch lat schodzimy na tygodnie i miesiące."""
+    import historia as hi
+    assert set(hi.ZAKRESY) == set(hi.ETYKIETY_ZAKRESU)
+    assert hi.ZAKRESY["1y"][1] == "1d"
+    assert hi.ZAKRESY["5y"][1] == "1wk"
+    assert hi.ZAKRESY["max"][1] == "1mo"
+
+
+def test_ema_startuje_od_sredniej_a_nie_od_pierwszej_ceny():
+    """EMA rozpędzana z jednego punktu przez kilkadziesiąt sesji goni resztę
+    i rysuje na początku krzywą, której nie ma."""
+    import historia as hi
+    v = [10.0] * 5 + [20.0] * 20
+    e = hi.ema(v, 5)
+    assert e[3] is None
+    assert e[4] == pytest.approx(10.0)
+
+
+def test_macd_histogram_to_roznica_linii_i_sygnalu():
+    import historia as hi
+    z = [x["zamkniecie"] for x in _sesje(200)]
+    linia, sygnal, hist = hi.macd(z)
+    for a, b, h in zip(linia, sygnal, hist):
+        if a is None or b is None:
+            assert h is None
+        else:
+            assert h == pytest.approx(a - b)
+
+
+def test_stochastyczny_bez_zakresu_daje_srodek_a_nie_wyjatek():
+    """Sesja, w której max == min (papier bez obrotu), dzieliłaby przez zero."""
+    import historia as hi
+    k, d = hi.stochastyczny([5.0] * 20, [5.0] * 20, [5.0] * 20)
+    assert k[-1] == 50.0

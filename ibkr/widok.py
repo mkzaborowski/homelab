@@ -16,6 +16,7 @@ from urllib.parse import quote
 import style
 import widok_analityka
 import historia
+import przegladarka
 import wykresy
 import widok_opcje
 
@@ -66,6 +67,21 @@ tr.wykres>td{padding:14px 15px;background:var(--tlo)}
 .wyk-stopka a{color:var(--akcent);text-decoration:none}
 .wyk-stopka a:hover{text-decoration:underline}
 .wyk-brak{margin:0;font-size:12px;color:var(--tekst-2)}
+.wyk-ster{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-bottom:12px;
+  padding:9px 11px;background:var(--plyta);border:1px solid var(--linia);border-radius:5px;
+  font-size:11.5px;color:var(--tekst-2)}
+.wyk-ster label{display:inline-flex;align-items:center;gap:5px;cursor:pointer}
+.wyk-ster input[type=text],.wyk-ster input:not([type]),.wyk-ster select{
+  background:var(--tlo);border:1px solid var(--linia);border-radius:4px;color:var(--tekst);
+  padding:2px 5px;font:inherit;font-variant-numeric:tabular-nums}
+.wyk-grupa{display:inline-flex;border:1px solid var(--linia);border-radius:4px;overflow:hidden}
+.wyk-zakres{background:0;border:0;border-right:1px solid var(--linia);color:var(--tekst-2);
+  padding:3px 9px;font:inherit;cursor:pointer}
+.wyk-zakres:last-child{border-right:0}
+.wyk-zakres:hover{color:var(--tekst)}
+.wyk-zakres.akt{background:var(--akcent);color:#fff}
+.wyk-osc{display:inline-flex;gap:12px}
+.wyk-ramka[aria-busy=true]{opacity:.45;transition:opacity .15s}
 .zakladki button[aria-selected=true]{color:var(--akcent);border-bottom-color:var(--akcent)}
 
 .wrap{max-width:1400px;margin:0 auto;padding:18px 20px 40px}
@@ -312,29 +328,81 @@ SKRYPT = r"""
     });
   }
 
+  // --- przeglądarka wykresu ---
+  // Ustawienia czytamy z formularza przy każdej zmianie i wysyłamy w adresie
+  // rysunku. Dzięki temu stan wykresu ma jedno miejsce - pola formularza -
+  // i nie trzeba go duplikować w zmiennych.
+  var wCzasie = {};
+
+  function rysujWykres(sym){
+    var r = document.querySelector('tr[data-wykres-of="' + CSS.escape(sym) + '"]');
+    if (!r) return;
+    var ramka = r.querySelector('.wyk-ramka');
+    var form = r.querySelector('.wyk-ster');
+    if (!ramka || !form) return;
+
+    var dane = new FormData(form);
+    var q = new URLSearchParams();
+    q.set('zakres', dane.get('zakres') || '1y');
+    q.set('typ', dane.get('typ') || 'swiece');
+    q.set('sma', dane.get('sma') || '');
+    q.set('ema', dane.get('ema') || '');
+    q.set('bb', dane.get('bb') ? '1' : '0');
+    q.set('wol', dane.get('wol') ? '1' : '0');
+    q.set('osc', dane.getAll('osc').join(','));
+
+    // Kolejne żądanie unieważnia poprzednie: przy szybkim klikaniu zakresów
+    // odpowiedzi wracają w dowolnej kolejności i bez tego na ekranie
+    // zostawałby wykres z żądania, które wyszło wcześniej.
+    var bilet = (wCzasie[sym] = (wCzasie[sym] || 0) + 1);
+    ramka.setAttribute('aria-busy', 'true');
+    fetch('/wykres/' + encodeURIComponent(sym) + '.svg?' + q.toString(),
+          {credentials: 'same-origin'})
+      .then(function(o){ if(!o.ok) throw 0; return o.text(); })
+      .then(function(svg){
+        if (wCzasie[sym] !== bilet) return;
+        ramka.innerHTML = svg;
+        ramka.removeAttribute('aria-busy');
+      })
+      .catch(function(){
+        if (wCzasie[sym] !== bilet) return;
+        ramka.innerHTML = '<p class="wyk-brak">Chart unavailable for ' + sym + '.</p>';
+        ramka.removeAttribute('aria-busy');
+      });
+  }
+
+  document.addEventListener('click', function(ev){
+    var z = ev.target.closest('.wyk-zakres');
+    if (!z) return;
+    var form = z.closest('.wyk-ster');
+    form.querySelectorAll('.wyk-zakres').forEach(function(b){ b.classList.remove('akt'); });
+    z.classList.add('akt');
+    form.querySelector('input[name=zakres]').value = z.dataset.zakres;
+    rysujWykres(form.dataset.sym);
+  });
+
+  document.addEventListener('change', function(ev){
+    var form = ev.target.closest('.wyk-ster');
+    if (form) rysujWykres(form.dataset.sym);
+  });
+  // Pola tekstowe okresów: rysujemy po chwili bez pisania, a nie na każdą
+  // literę - inaczej wpisanie "100" wysyła trzy żądania, z czego dwa na
+  // wartościach, których użytkownik nie miał na myśli.
+  var stoper;
+  document.addEventListener('input', function(ev){
+    var form = ev.target.closest('.wyk-ster');
+    if (!form || ev.target.type === 'checkbox') return;
+    clearTimeout(stoper);
+    stoper = setTimeout(function(){ rysujWykres(form.dataset.sym); }, 450);
+  });
+
   var tabela = document.getElementById('tabPozycje');
   if (tabela) tabela.addEventListener('click', function(ev){
     var wb = ev.target.closest('.wyk-otw');
     if (wb) {
       var sym = wb.dataset.wykres;
       wykresyOtwarte[sym] = !wykresyOtwarte[sym];
-      if (wykresyOtwarte[sym]) {
-        // Rysunek dociągamy dopiero przy pierwszym otwarciu. Przy trzydziestu
-        // spółkach wejście w zakładkę oznaczałoby trzydzieści pobrań naraz,
-        // z których widać jeden.
-        var r = tabela.querySelector('tr[data-wykres-of="' + CSS.escape(sym) + '"]');
-        var ramka = r && r.querySelector('.wyk-ramka[data-zrodlo]');
-        if (ramka) {
-          var zrodlo = ramka.dataset.zrodlo;
-          ramka.removeAttribute('data-zrodlo');   // drugie kliknięcie już nie pobiera
-          fetch(zrodlo, {credentials: 'same-origin'})
-            .then(function(o){ if(!o.ok) throw 0; return o.text(); })
-            .then(function(svg){ ramka.innerHTML = svg; })
-            .catch(function(){
-              ramka.innerHTML = '<p class="wyk-brak">Chart unavailable for ' + sym + '.</p>';
-            });
-        }
-      }
+      if (wykresyOtwarte[sym]) rysujWykres(sym);
       odswiezTabele();
       return;
     }
@@ -431,21 +499,50 @@ def _kafle(p: dict, okresy: dict, hist=None) -> str:
 _SYMBOL_WYKRESU = re.compile(r"^[A-Za-z][A-Za-z.\-]{0,9}$")
 
 
-def wykres_symbolu(symbol: str) -> str:
-    """SVG rocznego wykresu świecowego spółki albo komunikat o braku danych."""
+def wykres_symbolu(symbol: str, parametry: dict | None = None) -> str:
+    """SVG wykresu spółki dla podanych ustawień."""
     if not symbol or not _SYMBOL_WYKRESU.match(symbol):
         return '<p class="wyk-brak">No chart for this symbol.</p>'
-    sesje = historia.pobierz(symbol)
-    if not sesje:
-        return '<p class="wyk-brak">Price history unavailable right now.</p>'
-    z = [x["zamkniecie"] for x in sesje]
-    return wykresy.swiece_z_rsi(sesje, historia.sma(z, 100), historia.rsi(z), symbol)
+    return przegladarka.rysuj(symbol, przegladarka.ustawienia(parametry or {}))
+
+
+def _sterowanie(sym: str) -> str:
+    """Pasek ustawień wykresu.
+
+    Zwykły formularz, nie widżet: przeglądarka sama pamięta stan pól, a my
+    czytamy je jednym `FormData` przy każdej zmianie. Zakres i wskaźniki
+    idą do adresu rysunku, więc dokładnie ten sam układ da się odtworzyć
+    z linku.
+    """
+    zakresy = "".join(
+        f'<button type="button" class="wyk-zakres{" akt" if k == "1y" else ""}" '
+        f'data-zakres="{k}">{historia.ETYKIETY_ZAKRESU[k]}</button>'
+        for k in historia.ZAKRESY)
+    oscylatory = "".join(
+        f'<label><input type="checkbox" name="osc" value="{k}"'
+        f'{" checked" if k == "rsi" else ""}> {n}</label>'
+        for k, n in przegladarka.OSCYLATORY.items())
+    return (
+        f'<form class="wyk-ster" data-sym="{sym}">'
+        f'<div class="wyk-grupa" role="group" aria-label="Time range">{zakresy}</div>'
+        f'<input type="hidden" name="zakres" value="1y">'
+        f'<label class="wyk-pole">SMA <input name="sma" value="50,100" size="10" '
+        f'inputmode="numeric" placeholder="50,100,200"></label>'
+        f'<label class="wyk-pole">EMA <input name="ema" value="" size="8" '
+        f'inputmode="numeric" placeholder="20,50"></label>'
+        f'<label><input type="checkbox" name="bb"> Bollinger</label>'
+        f'<label><input type="checkbox" name="wol" checked> Volume</label>'
+        f'<span class="wyk-osc">{oscylatory}</span>'
+        f'<label class="wyk-pole">Type '
+        f'<select name="typ"><option value="swiece">Candles</option>'
+        f'<option value="linia">Line</option></select></label>'
+        f'</form>')
 
 
 def _wiersz_wykresu(symbol: str, kosz: str, kolumn: int) -> str:
-    """Schowany wiersz na wykres spółki, na całą szerokość tabeli.
+    """Schowany wiersz z przeglądarką wykresu, na całą szerokość tabeli.
 
-    Sam rysunek dociąga się dopiero przy otwarciu i jest WSTAWIANY W STRONĘ,
+    Rysunek dociąga się dopiero przy otwarciu i jest WSTAWIANY W STRONĘ,
     a nie ładowany jako <img>: SVG w obrazku żyje we własnym dokumencie
     i nie widzi zmiennych CSS motywu, więc świece wyszłyby czarne na czarnym
     po przełączeniu na ciemny.
@@ -455,10 +552,11 @@ def _wiersz_wykresu(symbol: str, kosz: str, kolumn: int) -> str:
     sym = e(symbol)
     return (f'<tr class="wykres" data-kosz="{kosz}" data-wykres-of="{sym}" hidden>'
             f'<td colspan="{kolumn}">'
-            f'<div class="wyk-ramka" data-zrodlo="/wykres/{quote(symbol.upper(), safe="")}.svg">'
+            f'{_sterowanie(sym)}'
+            f'<div class="wyk-ramka" data-sym="{sym}">'
             f'<p class="wyk-brak">Loading…</p></div>'
             f'<div class="wyk-stopka">'
-            f'<span>Daily candles · 1 year · MA(100) · RSI(14)</span>'
+            f'<span>Data: Yahoo Finance · drawn server-side</span>'
             f'<a href="https://stockcharts.com/h-sc/ui?s={quote(symbol.upper(), safe="")}" '
             f'target="_blank" rel="noopener noreferrer">open on StockCharts →</a>'
             f'</div></td></tr>')
