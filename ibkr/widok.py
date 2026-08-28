@@ -8,10 +8,14 @@ z CDN-u, panel ma działać bez wychodzenia na zewnątrz.
 from __future__ import annotations
 
 import json
+import os
+import re
 from html import escape as e
+from urllib.parse import quote
 
 import style
 import widok_analityka
+import historia
 import wykresy
 import widok_opcje
 
@@ -49,6 +53,19 @@ a{color:var(--akcent);text-decoration:none}a:hover{text-decoration:underline}
 .zakladki button{background:0;border:0;border-bottom:2px solid transparent;padding:11px 15px;
   font:inherit;font-weight:550;color:var(--przygas);cursor:pointer;white-space:nowrap}
 .zakladki button:hover{color:var(--tekst)}
+/* --- wykres spółki w tabeli pozycji --- */
+.wyk-otw{background:0;border:1px solid var(--linia);border-radius:4px;color:var(--tekst-2);
+  font-size:10px;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;margin-left:8px;
+  cursor:pointer;vertical-align:middle}
+.wyk-otw:hover{color:var(--akcent);border-color:var(--akcent)}
+.wyk-otw[aria-expanded=true]{color:var(--akcent);border-color:var(--akcent)}
+tr.wykres>td{padding:14px 15px;background:var(--tlo)}
+.wyk-ramka img{display:block;max-width:100%;height:auto;border:1px solid var(--linia);border-radius:4px}
+.wyk-stopka{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:baseline;
+  margin-top:8px;font-size:11px;color:var(--tekst-2)}
+.wyk-stopka a{color:var(--akcent);text-decoration:none}
+.wyk-stopka a:hover{text-decoration:underline}
+.wyk-brak{margin:0;font-size:12px;color:var(--tekst-2)}
 .zakladki button[aria-selected=true]{color:var(--akcent);border-bottom-color:var(--akcent)}
 
 .wrap{max-width:1400px;margin:0 auto;padding:18px 20px 40px}
@@ -275,12 +292,13 @@ SKRYPT = r"""
   // z nich za każdym razem, zamiast przełączać display przy kliknięciu.
   // Przy przełączaniu rozwinięcie koszyka pokazywało też transze wszystkich
   // spółek w środku - bo nie miało skąd wiedzieć, że były schowane.
-  var koszZamkniete = {}, lotyOtwarte = {};
+  var koszZamkniete = {}, lotyOtwarte = {}, wykresyOtwarte = {};
 
   function odswiezTabele(){
     document.querySelectorAll('tr[data-kosz]').forEach(function(r){
       if (r.dataset.naglowek) return;                 // wiersz koszyka zostaje
-      var lot = r.dataset.lotOf;
+      var lot = r.dataset.lotOf, wyk = r.dataset.wykresOf;
+      if (wyk) { r.hidden = koszZamkniete[r.dataset.kosz] || !wykresyOtwarte[wyk]; return; }
       r.hidden = koszZamkniete[r.dataset.kosz] || (lot ? !lotyOtwarte[lot] : false);
     });
     document.querySelectorAll('[data-zwin-kosz]').forEach(function(b){
@@ -289,10 +307,37 @@ SKRYPT = r"""
     document.querySelectorAll('[data-zwin-lot]').forEach(function(b){
       b.setAttribute('aria-expanded', String(!!lotyOtwarte[b.dataset.zwinLot]));
     });
+    document.querySelectorAll('[data-wykres]').forEach(function(b){
+      b.setAttribute('aria-expanded', String(!!wykresyOtwarte[b.dataset.wykres]));
+    });
   }
 
   var tabela = document.getElementById('tabPozycje');
   if (tabela) tabela.addEventListener('click', function(ev){
+    var wb = ev.target.closest('.wyk-otw');
+    if (wb) {
+      var sym = wb.dataset.wykres;
+      wykresyOtwarte[sym] = !wykresyOtwarte[sym];
+      if (wykresyOtwarte[sym]) {
+        // Rysunek dociągamy dopiero przy pierwszym otwarciu. Przy trzydziestu
+        // spółkach wejście w zakładkę oznaczałoby trzydzieści pobrań naraz,
+        // z których widać jeden.
+        var r = tabela.querySelector('tr[data-wykres-of="' + CSS.escape(sym) + '"]');
+        var ramka = r && r.querySelector('.wyk-ramka[data-zrodlo]');
+        if (ramka) {
+          var zrodlo = ramka.dataset.zrodlo;
+          ramka.removeAttribute('data-zrodlo');   // drugie kliknięcie już nie pobiera
+          fetch(zrodlo, {credentials: 'same-origin'})
+            .then(function(o){ if(!o.ok) throw 0; return o.text(); })
+            .then(function(svg){ ramka.innerHTML = svg; })
+            .catch(function(){
+              ramka.innerHTML = '<p class="wyk-brak">Chart unavailable for ' + sym + '.</p>';
+            });
+        }
+      }
+      odswiezTabele();
+      return;
+    }
     var b = ev.target.closest('.zwin');
     if (!b) return;
     if (b.dataset.zwinKosz) {
@@ -380,6 +425,45 @@ def _kafle(p: dict, okresy: dict, hist=None) -> str:
         f'{x[4] if len(x) > 4 else ""}</div>' for x in k) + '</div>'
 
 
+# Symbol nadający się do wykresu: same litery, kropka i myślnik. Odsiewa
+# opcje ("AAPL 260918C00250000"), gotówkę i wpisy techniczne - dla nich
+# nie ma czego rysować.
+_SYMBOL_WYKRESU = re.compile(r"^[A-Za-z][A-Za-z.\-]{0,9}$")
+
+
+def wykres_symbolu(symbol: str) -> str:
+    """SVG rocznego wykresu świecowego spółki albo komunikat o braku danych."""
+    if not symbol or not _SYMBOL_WYKRESU.match(symbol):
+        return '<p class="wyk-brak">No chart for this symbol.</p>'
+    sesje = historia.pobierz(symbol)
+    if not sesje:
+        return '<p class="wyk-brak">Price history unavailable right now.</p>'
+    z = [x["zamkniecie"] for x in sesje]
+    return wykresy.swiece_z_rsi(sesje, historia.sma(z, 100), historia.rsi(z), symbol)
+
+
+def _wiersz_wykresu(symbol: str, kosz: str, kolumn: int) -> str:
+    """Schowany wiersz na wykres spółki, na całą szerokość tabeli.
+
+    Sam rysunek dociąga się dopiero przy otwarciu i jest WSTAWIANY W STRONĘ,
+    a nie ładowany jako <img>: SVG w obrazku żyje we własnym dokumencie
+    i nie widzi zmiennych CSS motywu, więc świece wyszłyby czarne na czarnym
+    po przełączeniu na ciemny.
+    """
+    if not _SYMBOL_WYKRESU.match(symbol or ""):
+        return ""
+    sym = e(symbol)
+    return (f'<tr class="wykres" data-kosz="{kosz}" data-wykres-of="{sym}" hidden>'
+            f'<td colspan="{kolumn}">'
+            f'<div class="wyk-ramka" data-zrodlo="/wykres/{quote(symbol.upper(), safe="")}.svg">'
+            f'<p class="wyk-brak">Loading…</p></div>'
+            f'<div class="wyk-stopka">'
+            f'<span>Daily candles · 1 year · MA(100) · RSI(14)</span>'
+            f'<a href="https://stockcharts.com/h-sc/ui?s={quote(symbol.upper(), safe="")}" '
+            f'target="_blank" rel="noopener noreferrer">open on StockCharts →</a>'
+            f'</div></td></tr>')
+
+
 def _tabela_pozycji(p: dict) -> str:
     """Koszyk → spółka → transze zakupu, każdy poziom zwijany osobno.
 
@@ -419,6 +503,14 @@ def _tabela_pozycji(p: dict) -> str:
                            f'{_odm(len(loty), "lot", "lots")}</span>')
             else:
                 strzalka = licznik = ""
+            # Wykres jest osobnym przełącznikiem, nie częścią rozwijania transz:
+            # „ile mam" i „jak się zachowuje" to dwa różne pytania i rzadko
+            # zadaje się je naraz.
+            wykres_btn = (
+                f'<button class="wyk-otw" data-wykres="{e(t["symbol"])}" '
+                f'aria-expanded="false" title="Chart" '
+                f'aria-label="Chart for {e(t["symbol"])}">chart</button>'
+                if _SYMBOL_WYKRESU.match(t["symbol"] or "") else "")
             # Stop i odległość do niego są cechą SPÓŁKI, nie transzy - poziom
             # wpisuje się raz na ticker. Wcześniej stały tylko przy lotach,
             # więc po ich schowaniu zniknęłyby z widoku zupełnie.
@@ -426,7 +518,7 @@ def _tabela_pozycji(p: dict) -> str:
             w.append(f'<tr class="spolka" data-kosz="{kl}" data-sym="{e(t["symbol"])}">'
                      f'<td>{strzalka}</td>'
                      f'<td><span class="tyk">{e(t["symbol"])}</span>'
-                     f'<span class="opis">{e((t["opis"] or "")[:30])}</span>{licznik}</td>'
+                     f'<span class="opis">{e((t["opis"] or "")[:30])}</span>{licznik}{wykres_btn}</td>'
                      f'<td class="l num" data-v="{t["ilosc"]}">{t["ilosc"]:,.0f}</td>'
                      f'<td class="l num" data-v="{t["cena_kosztu"]}">{_pln(t["cena_kosztu"])}</td>'
                      f'<td class="l num" data-v="{t["cena"]}">{_pln(t["cena"])}</td>'
@@ -439,6 +531,7 @@ def _tabela_pozycji(p: dict) -> str:
                      f'<td class="l num">{stop}</td>'
                      f'<td class="l num">{_proc(t.get("do_stopu_proc"))}</td>'
                      f'<td class="l num" data-v="{t["udzial"]}">{t["udzial"]:.2f}%</td></tr>')
+            w.append(_wiersz_wykresu(t["symbol"], kl, 12))
             for nr, lot in enumerate(loty, 1):
                 w.append(f'<tr class="lot" data-kosz="{kl}" data-lot-of="{grupa_lotow}" '
                          f'data-sym="{e(t["symbol"])}" hidden><td></td>'

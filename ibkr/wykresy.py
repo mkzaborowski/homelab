@@ -576,3 +576,104 @@ def wskaznik(wartosc: float, minimum: float = 0.0, maksimum: float = 1.0,
             f'style="--doc:{obwod * (1 - u):.1f}"/>'
             f'</svg><div class="wsk-tekst"><div class="wsk-w num">{e(etykieta)}</div>'
             f'<div class="wsk-p">{e(podpis)}</div></div></div>')
+
+
+def swiece_z_rsi(sesje: list[dict], sma100: list[float | None],
+                 rsi14: list[float | None], symbol: str = "") -> str:
+    """Roczny wykres świecowy ze średnią 100-sesyjną i RSI(14) pod spodem.
+
+    Dwa panele, wspólna oś czasu: cena u góry, RSI u dołu. RSI ma własną
+    skalę 0-100 i linie 30/70 - bez nich liczba nic nie mówi, bo cały sens
+    wskaźnika to „gdzie jesteśmy względem tych progów".
+
+    Świece rysujemy jako knot (linia min-max) plus korpus (prostokąt
+    otwarcie-zamknięcie). Przy 250 sesjach na 760 punktach szerokości korpus
+    ma około dwóch pikseli - i to wystarcza, bo z rocznego wykresu czyta się
+    kształt trendu, a nie pojedynczą sesję.
+    """
+    if not sesje:
+        return '<p class="wyk-brak">No price history.</p>'
+
+    SZ, WYS_CENA, WYS_RSI, PRZERWA = 760.0, 250.0, 90.0, 26.0
+    LEWY, PRAWY, GORA = 6.0, 46.0, 8.0
+    wys = GORA + WYS_CENA + PRZERWA + WYS_RSI + 18
+    pole = SZ - LEWY - PRAWY
+    n = len(sesje)
+    krok = pole / n
+    korpus = max(1.2, min(6.0, krok * 0.62))
+
+    lo = min(s["min"] for s in sesje)
+    hi = max(s["max"] for s in sesje)
+    for v in sma100:
+        if v is not None:
+            lo, hi = min(lo, v), max(hi, v)
+    if hi <= lo:
+        hi = lo + 1.0
+    margines = (hi - lo) * 0.04
+    lo, hi = lo - margines, hi + margines
+
+    def x(i: int) -> float:
+        return LEWY + krok * (i + 0.5)
+
+    def y(v: float) -> float:
+        return GORA + WYS_CENA - (v - lo) / (hi - lo) * WYS_CENA
+
+    def y_rsi(v: float) -> float:
+        baza = GORA + WYS_CENA + PRZERWA
+        return baza + WYS_RSI - (v / 100.0) * WYS_RSI
+
+    w = [f'<svg viewBox="0 0 {SZ:.0f} {wys:.0f}" width="100%" height="auto" '
+         f'role="img" preserveAspectRatio="xMidYMid meet" '
+         f'aria-label="{e(symbol)}: daily candles for one year, 100-session moving average and RSI(14)">']
+
+    # siatka ceny — cztery poziomy wystarczą, żeby oko miało do czego przyłożyć
+    for u in (0.0, 0.25, 0.5, 0.75, 1.0):
+        v = lo + (hi - lo) * u
+        yy = y(v)
+        w.append(f'<line x1="{LEWY}" y1="{yy:.1f}" x2="{SZ - PRAWY:.1f}" y2="{yy:.1f}" '
+                 f'stroke="{SIATKA}" stroke-width="1"/>')
+        w.append(f'<text x="{SZ - PRAWY + 5:.1f}" y="{yy + 3.5:.1f}" font-size="10" '
+                 f'fill="{TEKST_SLABY}" style="font-variant-numeric:tabular-nums">{v:,.2f}</text>')
+
+    # świece
+    for i, s in enumerate(sesje):
+        xi = x(i)
+        rosnie = s["zamkniecie"] >= s["otwarcie"]
+        kol = WZROST if rosnie else SPADEK
+        w.append(f'<line x1="{xi:.2f}" y1="{y(s["max"]):.2f}" x2="{xi:.2f}" y2="{y(s["min"]):.2f}" '
+                 f'stroke="{kol}" stroke-width="1"/>')
+        gora_k, dol_k = y(max(s["otwarcie"], s["zamkniecie"])), y(min(s["otwarcie"], s["zamkniecie"]))
+        w.append(f'<rect x="{xi - korpus / 2:.2f}" y="{gora_k:.2f}" width="{korpus:.2f}" '
+                 f'height="{max(0.8, dol_k - gora_k):.2f}" fill="{kol}"/>')
+
+    # średnia 100 — rysujemy dopiero od miejsca, w którym istnieje
+    punkty = [f"{x(i):.2f},{y(v):.2f}" for i, v in enumerate(sma100) if v is not None]
+    if len(punkty) > 1:
+        w.append(f'<polyline points="{" ".join(punkty)}" fill="none" stroke="{AKCENT}" '
+                 f'stroke-width="1.6" stroke-linejoin="round"/>')
+        ostatnia = next(v for v in reversed(sma100) if v is not None)
+        w.append(f'<text x="{LEWY + 4:.1f}" y="{GORA + 12:.1f}" font-size="10.5" fill="{AKCENT}" '
+                 f'style="font-variant-numeric:tabular-nums">MA(100) {ostatnia:,.2f}</text>')
+
+    # RSI: progi 30/70 i pasmo między nimi
+    baza = GORA + WYS_CENA + PRZERWA
+    w.append(f'<rect x="{LEWY}" y="{y_rsi(70):.1f}" width="{pole:.1f}" '
+             f'height="{y_rsi(30) - y_rsi(70):.1f}" fill="{SIATKA}" opacity=".35"/>')
+    for prog in (30, 50, 70):
+        yy = y_rsi(prog)
+        w.append(f'<line x1="{LEWY}" y1="{yy:.1f}" x2="{SZ - PRAWY:.1f}" y2="{yy:.1f}" '
+                 f'stroke="{SIATKA}" stroke-width="1" '
+                 f'{"stroke-dasharray=\'3 3\'" if prog == 50 else ""}/>')
+        w.append(f'<text x="{SZ - PRAWY + 5:.1f}" y="{yy + 3.5:.1f}" font-size="10" '
+                 f'fill="{TEKST_SLABY}">{prog}</text>')
+
+    pkt_rsi = [f"{x(i):.2f},{y_rsi(v):.2f}" for i, v in enumerate(rsi14) if v is not None]
+    if len(pkt_rsi) > 1:
+        w.append(f'<polyline points="{" ".join(pkt_rsi)}" fill="none" stroke="{AKCENT_2}" '
+                 f'stroke-width="1.4" stroke-linejoin="round"/>')
+        ost = next(v for v in reversed(rsi14) if v is not None)
+        w.append(f'<text x="{LEWY + 4:.1f}" y="{baza + 12:.1f}" font-size="10.5" fill="{AKCENT_2}" '
+                 f'style="font-variant-numeric:tabular-nums">RSI(14) {ost:,.1f}</text>')
+
+    w.append("</svg>")
+    return "".join(w)

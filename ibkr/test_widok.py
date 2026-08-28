@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 import opcje
 import ryzyko
 import scenariusze as scen
@@ -271,10 +273,86 @@ def test_kazda_tabela_ma_tyle_komorek_ile_naglowkow():
             continue                      # tabela układu, bez nagłówków
         wiersze = re.findall(r"<tr[^>]*>(?:(?!</tr>).)*?</tr>", tab, re.S)
         for w in wiersze:
-            komorki = re.findall(r"<td[ >]", w)
+            komorki = re.findall(r"<td([^>]*)>", w)
             if not komorki:
                 continue                  # wiersz nagłówkowy albo pusty stan
-            assert len(komorki) == len(naglowki), (
-                f"wiersz ma {len(komorki)} komórek przy {len(naglowki)} nagłówkach:\n"
+            # Liczy się ROZPIĘTOŚĆ, nie liczba komórek: wiersz rozciągnięty na
+            # całą szerokość (wykres spółki) ma jedną komórkę z colspan i jest
+            # poprawny, a wiersz z brakującą kolumną nadal się nie zgadza.
+            rozpietosc = 0
+            for atrybuty in komorki:
+                m = re.search(r'colspan="(\d+)"', atrybuty)
+                rozpietosc += int(m.group(1)) if m else 1
+            assert rozpietosc == len(naglowki), (
+                f"wiersz obejmuje {rozpietosc} kolumn przy {len(naglowki)} nagłówkach:\n"
                 f"{w[:220]}"
             )
+
+
+# --------------------------------------------------------------------------- #
+#  wykres pozycji
+# --------------------------------------------------------------------------- #
+
+def test_wykres_ma_swiece_srednia_i_rsi():
+    """Zamówiony był wykres świecowy z RSI i średnią 100-sesyjną.
+
+    Test pilnuje trzech rzeczy naraz, bo każda z nich potrafi zniknąć osobno:
+    świece (prostokąty korpusów), średnia ze 100 sesji i panel RSI z progami.
+    Sam fakt, że coś się narysowało, niczego nie dowodzi - pusty SVG też się
+    rysuje.
+    """
+    import historia
+    import wykresy
+
+    # dane syntetyczne: 250 sesji, żeby średnia ze 100 miała się z czego wziąć
+    sesje = []
+    cena = 100.0
+    for i in range(250):
+        cena *= 1.004 if i % 3 else 0.995
+        sesje.append({"czas": 1_700_000_000 + i * 86400, "otwarcie": cena * 0.99,
+                      "max": cena * 1.02, "min": cena * 0.97,
+                      "zamkniecie": cena, "wolumen": 1000.0})
+    z = [s["zamkniecie"] for s in sesje]
+    svg = wykresy.swiece_z_rsi(sesje, historia.sma(z, 100), historia.rsi(z), "TEST")
+
+    assert svg.count("<rect") >= 250, "brakuje korpusów świec"
+    assert "MA(100)" in svg, "nie ma średniej ze 100 sesji"
+    assert "RSI(14)" in svg, "nie ma RSI"
+    for prog in (">30<", ">50<", ">70<"):
+        assert prog in svg, f"panel RSI bez progu {prog}"
+
+
+def test_srednia_100_nie_zaczyna_sie_przed_setna_sesja():
+    """Średnia ze 100 sesji narysowana na dwudziestej byłaby liczbą, której nie
+    ma - a na wykresie wyglądałaby dokładnie tak samo jak prawdziwa."""
+    import historia
+    s = historia.sma([float(i) for i in range(150)], 100)
+    assert s[98] is None
+    assert s[99] == pytest.approx(sum(range(100)) / 100)
+
+
+def test_rsi_liczy_metoda_wildera():
+    """RSI po zwykłej średniej daje inne liczby niż w każdym innym narzędziu.
+    Sprawdzamy skrajność: same wzrosty to 100, same spadki to 0."""
+    import historia
+    rosnie = historia.rsi([float(i) for i in range(1, 40)])
+    spada = historia.rsi([float(i) for i in range(40, 1, -1)])
+    assert rosnie[-1] == pytest.approx(100.0)
+    assert spada[-1] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_wykres_bez_danych_nie_wybucha():
+    """Yahoo bywa niedostępny. Panel ma wtedy powiedzieć, że nie wie -
+    a nie wysypać całą zakładkę pozycji."""
+    import wykresy
+    out = wykresy.swiece_z_rsi([], [], [], "TEST")
+    assert "wyk-brak" in out and "<svg" not in out
+
+
+def test_symbol_opcji_nie_dostaje_wykresu():
+    """Opcje i wpisy techniczne nie mają wykresu spółki - próba pobrania
+    kończyłaby się pustą odpowiedzią przy każdym otwarciu."""
+    assert widok._SYMBOL_WYKRESU.match("AAPL")
+    assert widok._SYMBOL_WYKRESU.match("BRK.B")
+    assert not widok._SYMBOL_WYKRESU.match("AAPL 260918C00250000")
+    assert not widok._SYMBOL_WYKRESU.match("")
