@@ -35,3 +35,30 @@ jobs:
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # Wdrożenie na serwer. Do tej pory workflow kończył się na zbudowaniu
+      # obrazu, a kontener trzeba było zrestartować ręcznie - przez co panel
+      # potrafił chodzić na kodzie sprzed kilku commitów i nikt tego nie widział.
+      #
+      # `docker compose up -d`, nie `restart`: restart podnosi kontener ze STARĄ
+      # konfiguracją i nie widzi ani nowego obrazu, ani zmian w .env. Ta pułapka
+      # kosztowała już jedno wdrożenie, które wyglądało na udane i nic nie zmieniło.
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /opt/ibkr
+            docker compose pull -q
+            docker compose up -d
+            sleep 4
+            # Kontrola po wdrożeniu: bez niej „zielony" workflow znaczyłby tylko
+            # tyle, że obraz się pobrał - a nie, że panel wstał i odpowiada.
+            docker run --rm --network edge curlimages/curl:latest -sS -m 10 -o /dev/null \
+              -w 'kontrola po wdrozeniu: %{http_code}\n' http://ibkr:8090/healthz | tee /tmp/ibkr-check
+            grep -qE ' (200|302)' /tmp/ibkr-check
+            docker image prune -f
