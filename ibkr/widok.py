@@ -917,6 +917,25 @@ def _formularz_meta(p: dict, koszyki: list[str]) -> str:
     return "".join(w)
 
 
+def _odpowiedniki_ue(por: dict) -> str:
+    """Które fundusze z arkusza liczą się przez europejski odpowiednik, a które
+    można by kupić w UE - żeby było widać, dlaczego wiersz wrócił albo wypadł."""
+    trzymane = por.get("odpowiedniki") or []
+    do_kupienia = por.get("do_kupienia_w_ue") or []
+    if not trzymane and not do_kupienia:
+        return ""
+    w = ['<div class="uwaga" style="margin-top:12px">']
+    if trzymane:
+        w.append("<b>Counted through a UCITS equivalent:</b> " + ", ".join(
+            f'{e(d["wzor"])} ← {e(s)}{" (related index)" if d["pokrewny"] else ""}'
+            for s, d in trzymane) + ".<br>")
+    if do_kupienia:
+        w.append("<b>Buyable in the EU, not held:</b> " + "; ".join(
+            f'{e(t)} → {e(", ".join(opcje))}' for t, opcje in do_kupienia) + ".")
+    w.append("</div>")
+    return "".join(w)
+
+
 def _tabela_wzorca(por: dict) -> str:
     """Zestawienie udziałów docelowych i faktycznych. Kolor tylko tam, gdzie
     przekroczono próg - inaczej cała tabela świeciłaby się bez powodu."""
@@ -934,6 +953,14 @@ def _tabela_wzorca(por: dict) -> str:
         w.append(
             f'<tr><td><span class="tyk">{e(p["ticker"])}</span>'
             + (' <span class="plak ok">core</span>' if p["rdzenna"] else "")
+            # europejski odpowiednik, który liczy się za ten ticker z arkusza
+            + "".join(
+                f' <span class="plak {"uw" if o["pokrewny"] else "ok"}" '
+                f'title="{e(o["nazwa"])} · {e(o["isin"])}'
+                f'{" · related index, not the same one" if o["pokrewny"] else ""}'
+                f'{" · set by hand" if o["reczny"] else ""}">'
+                f'held as {e(o["symbol"])}{" ≈" if o["pokrewny"] else ""}</span>'
+                for o in p.get("odpowiedniki", []))
             + f'</td><td class="uwaga">{e(p["koszyk"])}</td>'
             # Kolumna "Sheet" to wartość WPROST Z ARKUSZA. Bez niej nagłówek
             # obiecywał osiem kolumn przy siedmiu komórkach, więc cała tabela
@@ -1096,12 +1123,15 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
     <div class="tresc">
       <p class="uwaga" style="margin-bottom:10px">Crypto is excluded, and US ETFs
         and leveraged instruments are not available to an EU retail investor.
+        A US index ETF comes back into the comparison as soon as you hold a
+        UCITS fund on the same index (matched by ISIN, not ticker).
         The remaining weights are rescaled to sum to 100% of what you can
         actually hold (multiplier {porownanie["skala"]:.3f}).</p>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
         {"".join(f'<span class="plak {"zle" if p == "krypto" else "uw"}">{e(t)}</span>'
                  for t, p in porownanie["pominiete"])}
       </div>
+      {_odpowiedniki_ue(porownanie)}
     </div>
   </div>
 
