@@ -36,6 +36,19 @@ up changes after a `git pull`, re-run the same command.
 
 Or without Docker: `python3 app.py` (no dependencies).
 
+### Kubernetes
+
+```bash
+kubectl apply -f gate-opener/k8s/
+```
+
+Pulls `ghcr.io/mkzaborowski/gate-opener:latest`, so it needs that package
+published (and either public, or an image pull secret if private).
+
+`replicas` must stay at **1** — the armed command lives in process memory, so a
+second replica would answer `/command` without knowing about a POST that landed
+on the first.
+
 ## Notes
 
 State is in-memory, so a restart clears any armed command — intended, given the
