@@ -13,6 +13,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TTL_SECONDS = float(os.environ.get("COMMAND_TTL", "1.5"))
+CONSUME_ON_READ = os.environ.get("CONSUME_ON_READ", "").lower() in ("1", "true", "yes")
 BASE_COMMAND = "none"
 
 _lock = threading.Lock()
@@ -29,7 +30,11 @@ def arm(name):
 
 
 def current():
-    """Return (command, seconds_remaining), expiring the stored command if stale."""
+    """Return (command, seconds_remaining), expiring the stored command if stale.
+
+    With CONSUME_ON_READ the command is cleared as soon as it is handed out, so
+    exactly one reader acts on it and a slow poller cannot miss the TTL window.
+    """
     global _command, _expires_at
     with _lock:
         remaining = _expires_at - time.monotonic()
@@ -37,7 +42,11 @@ def current():
             _command = None
             _expires_at = 0.0
             return BASE_COMMAND, 0.0
-        return _command, round(remaining, 3)
+        command = _command
+        if CONSUME_ON_READ:
+            _command = None
+            _expires_at = 0.0
+        return command, round(remaining, 3)
 
 
 class Handler(BaseHTTPRequestHandler):
