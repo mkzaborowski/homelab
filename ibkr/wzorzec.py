@@ -60,104 +60,6 @@ FUNDUSZE = {
 
 DODATKOWE = {x.strip().upper() for x in os.environ.get("WZORZEC_POMIN", "").split(",") if x.strip()}
 
-# --------------------------------------------------------------------------- #
-#  Europejskie odpowiedniki funduszy indeksowych
-#
-#  Amerykańskiego ETF-u z arkusza nie kupisz, ale fundusz UCITS śledzący TEN
-#  SAM indeks - tak. Bez tej tabeli taki fundusz w portfelu był podwójnie
-#  źle liczony: pozycja z arkusza znikała jako „fundusz", a Twój odpowiednik
-#  wychodził jako „Not in model".
-#
-#  DOPASOWANIE PO ISIN, NIGDY PO TICKERZE. Tickery z LSE pokrywają się
-#  z amerykańskimi, a znaczą co innego: „SLVP" w arkuszu to fundusz spółek
-#  wydobywczych srebra, a „SLVP" na LSE to Invesco Physical Silver ETC -
-#  fizyczny metal. Dopasowanie po nazwie symbolu połączyłoby je po cichu.
-#
-#  Tylko fundusze INDEKSOWE: odpowiednik ma śledzić ten sam indeks. Każdy
-#  wpis sprawdzony w prospekcie/nocie funduszu (wrzesień 2026). Świadomie
-#  pominięte:
-#    SCHD  - żaden UCITS nie śledzi Dow Jones U.S. Dividend 100,
-#    SLVP  - brak UCITS na MSCI ACWI Select Silver Miners,
-#    SPXS, SQQQ, SDS - lewar -3x/-2x; europejskie produkty mają inny mnożnik,
-#          więc to inna ekspozycja, nie odpowiednik.
-#
-#  `pokrewny` = inny, choć bliski indeks. Taki odpowiednik liczy się do
-#  porównania, ale panel pisze wprost, że to nie jest ten sam indeks.
-# --------------------------------------------------------------------------- #
-
-ODPOWIEDNIKI: dict[str, dict] = {
-    "XLE": {
-        "indeks": "S&P Energy Select Sector",
-        "isin": {
-            "IE00BWBXM492": ("SXLE", "SPDR S&P U.S. Energy Select Sector UCITS", False),
-            # wersja z limitem wagi 20% na spółkę - ten sam skład, inne wagi szczytowe
-            "IE00B435CG94": ("XLES", "Invesco Energy S&P US Select Sector UCITS", False),
-        },
-    },
-    "KWEB": {
-        "indeks": "CSI Overseas China Internet",
-        "isin": {"IE00BFXR7892": ("KWEB", "KraneShares CSI China Internet UCITS", False)},
-    },
-    "OIH": {
-        "indeks": "MVIS US Listed Oil Services 25",
-        # wersja z limitem 10% na spółkę
-        "isin": {"IE000NXF88S1": ("OIHV", "VanEck Oil Services UCITS", False)},
-    },
-    "UFO": {
-        "indeks": "S-Network Space",
-        "isin": {"IE00BLH3CV30": ("YODA", "Procure Space UCITS", False)},
-    },
-    "NLR": {
-        "indeks": "MVIS Global Uranium & Nuclear Energy",
-        # MarketVector Global Uranium and Nuclear Energy INFRASTRUCTURE - bliski, nie ten sam
-        "isin": {"IE000M7V94E1": ("NUCL", "VanEck Uranium and Nuclear Technologies UCITS", True)},
-    },
-}
-
-
-def _reczne_odpowiedniki() -> dict[str, str]:
-    """WZORZEC_ODPOWIEDNIKI="SCHD=IE00ABC,UFO=JEDG" - ISIN albo symbol z konta.
-
-    Na wypadek funduszu, którego tabela nie zna. Decyzja człowieka wygrywa
-    z tabelą, więc wpis tutaj może też odłączyć automatyczne dopasowanie
-    (wtedy wystarczy wskazać inny ISIN)."""
-    wynik: dict[str, str] = {}
-    for para in os.environ.get("WZORZEC_ODPOWIEDNIKI", "").split(","):
-        if "=" in para:
-            k, v = para.split("=", 1)
-            if k.strip() and v.strip():
-                wynik[v.strip().upper()] = k.strip().upper()
-    return wynik
-
-
-def _europejski(isin: str) -> bool:
-    """ISIN spoza USA = fundusz europejski, nawet jeśli ma amerykański ticker."""
-    return bool(isin) and not isin.upper().startswith("US")
-
-
-def dopasuj_odpowiedniki(symbole: list[str], instrumenty: dict[str, dict]) -> dict[str, dict]:
-    """{symbol z konta: {"wzor": ticker z arkusza, "nazwa", "indeks", "pokrewny", "reczny"}}.
-
-    Symbol z konta nieobecny w katalogu instrumentów (brak ISIN) nie jest
-    dopasowywany - bez ISIN nie odróżnimy KWEB z Londynu od KWEB z Nowego Jorku.
-    """
-    po_isin = {isin: (tic, *dane) for tic, w in ODPOWIEDNIKI.items() for isin, dane in w["isin"].items()}
-    reczne = _reczne_odpowiedniki()
-    wynik: dict[str, dict] = {}
-    for sym in symbole:
-        info = instrumenty.get(sym) or instrumenty.get(sym.upper()) or {}
-        isin = (info.get("isin") or "").upper()
-        cel = reczne.get(isin) or reczne.get(sym.upper())
-        if cel:
-            wynik[sym] = {"wzor": cel, "nazwa": info.get("nazwa") or sym,
-                          "indeks": ODPOWIEDNIKI.get(cel, {}).get("indeks", ""),
-                          "pokrewny": False, "reczny": True, "isin": isin}
-        elif isin in po_isin:
-            tic, _skrot, nazwa, pokrewny = po_isin[isin]
-            wynik[sym] = {"wzor": tic, "nazwa": nazwa, "indeks": ODPOWIEDNIKI[tic]["indeks"],
-                          "pokrewny": pokrewny, "reczny": False, "isin": isin}
-    return wynik
-
 
 def poza_zasiegiem(tic: str) -> str | None:
     """Zwraca powód wykluczenia albo None, gdy instrument jest dostępny."""
@@ -217,7 +119,7 @@ def parsuj(tekst: str) -> dict:
     }
 
 
-def porownaj(wzor: dict, pods: dict, instrumenty: dict[str, dict] | None = None) -> dict:
+def porownaj(wzor: dict, pods: dict) -> dict:
     """Zestawia udziały docelowe z faktycznymi. Podstawą procentów po naszej
     stronie jest suma aktywów, tak samo jak w reszcie panelu."""
     podstawa = pods.get("suma_aktywow") or 0.0
@@ -228,44 +130,17 @@ def porownaj(wzor: dict, pods: dict, instrumenty: dict[str, dict] | None = None)
         faktyczne[t["symbol"].upper()] = udzial
         wartosci[t["symbol"].upper()] = t["wartosc"]
 
-    instrumenty = instrumenty or {}
+    # Wyrzucamy krypto i fundusze, a udziały reszty skalujemy tak, żeby
+    # sumowały się do 100% tego, co realnie możesz kupić.
     surowy_cel = wzor["tickery"]
-
-    # Europejskie odpowiedniki: udział funduszu UCITS przechodzi na pozycję
-    # z arkusza, której indeks śledzi. XLES liczy się jako XLE.
-    odpowiedniki = {s: d for s, d in dopasuj_odpowiedniki(list(faktyczne), instrumenty).items()
-                    if d["wzor"] in surowy_cel}
-    dopasowane: dict[str, list[dict]] = defaultdict(list)
-    for sym, d in odpowiedniki.items():
-        u, w = faktyczne.pop(sym), wartosci.pop(sym, 0.0)
-        faktyczne[d["wzor"]] = faktyczne.get(d["wzor"], 0.0) + u
-        wartosci[d["wzor"]] = wartosci.get(d["wzor"], 0.0) + w
-        dopasowane[d["wzor"]].append({"symbol": sym, **d})
-
-    # Europejski fundusz BEZ odpowiednika w arkuszu, który przypadkiem ma ticker
-    # z arkusza (SLVP z LSE to srebro fizyczne, a nie spółki wydobywcze
-    # z arkusza), dostaje osobny klucz - inaczej wylądowałby w cudzym wierszu.
-    for sym in list(faktyczne):
-        isin = (instrumenty.get(sym) or {}).get("isin") or ""
-        if sym in surowy_cel and sym not in dopasowane and _europejski(isin):
-            nowy = f"{sym} (UCITS)"
-            faktyczne[nowy] = faktyczne.pop(sym)
-            wartosci[nowy] = wartosci.pop(sym, 0.0)
-
-    # Wyrzucamy krypto i fundusze bez kupionego odpowiednika, a udziały reszty
-    # skalujemy tak, żeby sumowały się do 100% tego, co realnie możesz kupić.
-    pominiete = {t: p for t in surowy_cel if (p := poza_zasiegiem(t)) and t not in dopasowane}
+    pominiete = {t: p for t in surowy_cel if (p := poza_zasiegiem(t))}
     dostepne = {t: u for t, u in surowy_cel.items() if t not in pominiete}
     suma_dostepnych = sum(dostepne.values())
     skala = (100.0 / suma_dostepnych) if suma_dostepnych else 1.0
     cel = {t: u * skala for t, u in dostepne.items()}
 
-    # z faktycznych też usuwamy to, czego nie porównujemy - ale tylko amerykańskie
-    # fundusze; odpowiedniki już siedzą pod tickerem z arkusza
-    faktyczne = {t: u for t, u in faktyczne.items()
-                 if t in dopasowane or t.endswith(" (UCITS)")
-                 or not poza_zasiegiem(t)
-                 or _europejski((instrumenty.get(t) or {}).get("isin") or "")}
+    # z faktycznych też usuwamy to, czego nie porównujemy
+    faktyczne = {t: u for t, u in faktyczne.items() if not poza_zasiegiem(t)}
     wszystkie = sorted(set(cel) | set(faktyczne))
 
     pozycje = []
@@ -294,8 +169,6 @@ def porownaj(wzor: dict, pods: dict, instrumenty: dict[str, dict] | None = None)
             "rodzaj": rodzaj,
             "rdzenna": tic in wzor["rdzenne"],
             "wartosc": wartosci.get(tic, 0.0),
-            # co z Twojego konta liczy się za ten ticker z arkusza
-            "odpowiedniki": dopasowane.get(tic, []),
         })
 
     # koszyki liczymy po przypisaniu ze wzorca, żeby porównywać jabłka z jabłkami
@@ -337,13 +210,6 @@ def porownaj(wzor: dict, pods: dict, instrumenty: dict[str, dict] | None = None)
         # największa pojedyncza rozbieżność - najszybszy wskaźnik "jak bardzo odjechałem"
         "max_roznica": max((abs(p["roznica"]) for p in pozycje), default=0.0),
         "pominiete": sorted(pominiete.items()),
-        # fundusze z arkusza, które da się kupić w UE, choć jeszcze ich nie masz
-        "do_kupienia_w_ue": sorted(
-            (t, [f"{sk} ({isin})" + (" – pokrewny indeks" if pk else "")
-                 for isin, (sk, _n, pk) in ODPOWIEDNIKI[t]["isin"].items()])
-            for t in pominiete if t in ODPOWIEDNIKI),
-        "odpowiedniki": sorted(((sym, d) for sym, d in odpowiedniki.items()),
-                               key=lambda x: x[1]["wzor"]),
         "skala": skala,
         "suma_dostepnych": round(suma_dostepnych, 2),
     }

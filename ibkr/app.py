@@ -192,9 +192,7 @@ def glowna(komunikat="", blad=False):
     por = analiza_opcji = analityka = None
     if pods:
         try:
-            # katalog instrumentów niesie ISIN - po nim rozpoznajemy europejskie
-            # odpowiedniki funduszy z arkusza
-            por = wzorzec.porownaj(wzorzec.parsuj(wzorzec.pobierz()), pods, store.instrumenty())
+            por = wzorzec.porownaj(wzorzec.parsuj(wzorzec.pobierz()), pods)
         except Exception as e:                                  # noqa: BLE001
             # brak wzorca nie może wywalić całego panelu
             app.logger.warning("Could not fetch the model sheet: %s", e)
