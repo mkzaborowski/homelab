@@ -6,6 +6,7 @@ POST /gate    -> arms the "gate" command for 1.5 seconds
 GET  /command -> returns the armed command, or "none" once it expires
 """
 
+import hmac
 import json
 import os
 import threading
@@ -13,6 +14,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TTL_SECONDS = float(os.environ.get("COMMAND_TTL", "1.5"))
+AUTH_TOKEN = os.environ.get("AUTH_TOKEN", "")
 BASE_COMMAND = "none"
 
 _lock = threading.Lock()
@@ -43,6 +45,16 @@ def current():
 class Handler(BaseHTTPRequestHandler):
     server_version = "gate-opener/1.0"
 
+    def _authorized(self):
+        """True when AUTH_TOKEN is unset, or the request carries the matching token.
+
+        compare_digest keeps the check constant-time, so a caller cannot recover
+        the token byte by byte from response timing.
+        """
+        if not AUTH_TOKEN:
+            return True
+        return hmac.compare_digest(self.headers.get("X-Auth-Token", ""), AUTH_TOKEN)
+
     def _json(self, status, payload):
         body = json.dumps(payload).encode()
         self.send_response(status)
@@ -52,18 +64,23 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        if self.path in ("/garage", "/gate"):
+        if not self._authorized():
+            self._json(401, {"error": "unauthorized"})
+        elif self.path in ("/garage", "/gate"):
             name = self.path.lstrip("/")
             self._json(200, {"command": name, "expires_in": arm(name)})
         else:
             self._json(404, {"error": "not found"})
 
     def do_GET(self):
-        if self.path == "/command":
+        if self.path == "/healthz":
+            # Left open so container health checks work without the token.
+            self._json(200, {"status": "ok"})
+        elif not self._authorized():
+            self._json(401, {"error": "unauthorized"})
+        elif self.path == "/command":
             command, remaining = current()
             self._json(200, {"command": command, "expires_in": remaining})
-        elif self.path == "/healthz":
-            self._json(200, {"status": "ok"})
         else:
             self._json(404, {"error": "not found"})
 
