@@ -516,3 +516,12 @@ def test_svg_niesie_geometrie_potrzebna_do_krzyza():
     for atrybut in ("data-x0", "data-krok", "data-n", "data-gora", "data-dol"):
         assert atrybut in svg, f"brak {atrybut}"
     assert 'class="wyk-lapacz"' in svg and 'class="wyk-krzyz"' in svg
+
+
+def test_cel_rowny_arkuszowi():
+    """Target ma być dokładnie liczbą z arkusza - bez mnożnika uniwersum."""
+    por = _porownanie({"suma_aktywow": 10_000.0,
+                       "tickery": [{"symbol": "TSLA", "wartosc": 700.0}]})
+    for p in por["pozycje"]:
+        assert abs(p["cel"] - p["cel_arkusz"]) < 1e-9, p["ticker"]
+    assert por["skala"] == 1.0

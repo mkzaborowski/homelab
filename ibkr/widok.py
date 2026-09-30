@@ -1079,7 +1079,7 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
     </div>
   </div>
 
-  <div class="karta"><h2>Baskets<span class="obok">Sheet matches your model line for line; Target drops what you cannot buy and rescales the rest</span></h2><div class="przewin"><table><thead><tr>
+  <div class="karta"><h2>Baskets<span class="obok">Target is the weight straight from your model; baskets leave out what you cannot buy</span></h2><div class="przewin"><table><thead><tr>
     <th>Basket</th><th class="l">Sheet</th><th class="l">Target</th><th class="l">Actual</th>
     <th class="l">Gap</th></tr></thead><tbody>
     {"".join(f'<tr><td>{e(k["koszyk"])}</td>'
@@ -1096,8 +1096,7 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
     <div class="tresc">
       <p class="uwaga" style="margin-bottom:10px">Crypto is excluded, and US ETFs
         and leveraged instruments are not available to an EU retail investor.
-        The remaining weights are rescaled to sum to 100% of what you can
-        actually hold (multiplier {porownanie["skala"]:.3f}).</p>
+        The remaining targets are taken from the sheet as they are.</p>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
         {"".join(f'<span class="plak {"zle" if p == "krypto" else "uw"}">{e(t)}</span>'
                  for t, p in porownanie["pominiete"])}
@@ -1108,8 +1107,7 @@ def panel(pods: dict | None, hist, koszyki, przebiegi, komunikat="", blad=False,
   <div class="karta"><h2>Holdings<span class="obok">sorted by size of the gap</span></h2>
     {_tabela_wzorca(porownanie)}
     <div class="tresc uwaga"><b>Sheet</b> is the weight straight from your model,
-      <b>Target</b> is the same weight rescaled to the investable universe
-      (multiplier {porownanie["skala"]:.3f}) — which is why Target is higher.
+      <b>Target</b> is the same weight — no rescaling.
       Trade size is the buy (positive) or sell (negative) needed to bring the
       weight in line with the model, measured against total assets
       {_pln(porownanie["podstawa"])}.</div>

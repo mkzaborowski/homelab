@@ -42,8 +42,8 @@ PROG = 0.5
 #  i odwrotne. Takie pozycje nigdy się nie zgodzą, więc pokazywanie ich jako
 #  "brakujących" byłoby wieczną fałszywą alarmówką.
 #
-#  Udziały docelowe pozostałych pozycji są przeliczane na nowo, tak by sumowały
-#  się do 100% dostępnego uniwersum - inaczej cel byłby systematycznie zaniżony.
+#  Udziały docelowe pozostałych pozycji idą WPROST z arkusza, bez przeliczania
+#  do 100% dostępnego uniwersum - tak chce użytkownik (Target = Sheet).
 # --------------------------------------------------------------------------- #
 
 # rozpoznawane po końcówce (BTCUSD, ETHUSD...) plus jawna lista
@@ -130,14 +130,17 @@ def porownaj(wzor: dict, pods: dict) -> dict:
         faktyczne[t["symbol"].upper()] = udzial
         wartosci[t["symbol"].upper()] = t["wartosc"]
 
-    # Wyrzucamy krypto i fundusze, a udziały reszty skalujemy tak, żeby
-    # sumowały się do 100% tego, co realnie możesz kupić.
+    # Wyrzucamy krypto i fundusze; reszta porównywana z celem z arkusza.
     surowy_cel = wzor["tickery"]
     pominiete = {t: p for t in surowy_cel if (p := poza_zasiegiem(t))}
     dostepne = {t: u for t, u in surowy_cel.items() if t not in pominiete}
     suma_dostepnych = sum(dostepne.values())
-    skala = (100.0 / suma_dostepnych) if suma_dostepnych else 1.0
-    cel = {t: u * skala for t, u in dostepne.items()}
+    # Cel = udział WPROST Z ARKUSZA, bez przeskalowania. Wcześniej udziały
+    # dostępnych pozycji były rozciągane do 100% (mnożnik ~1,15), przez co
+    # Target nie zgadzał się z arkuszem i trudno było porównać jedno z drugim.
+    # Użytkownik chce widzieć dokładnie liczby z arkusza.
+    skala = 1.0
+    cel = dict(dostepne)
 
     # z faktycznych też usuwamy to, czego nie porównujemy
     faktyczne = {t: u for t, u in faktyczne.items() if not poza_zasiegiem(t)}
